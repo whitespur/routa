@@ -163,7 +163,7 @@ jobs:
 
       - name: Start Rust server
         run: |
-          cargo run -p routa-server &
+          cargo run -p routa-cli -- server &
           echo "Waiting for Rust server to start..."
           timeout 60 bash -c 'until curl -sf http://localhost:3210/api/health; do sleep 2; done'
           echo "Server is ready"
