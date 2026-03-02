@@ -76,6 +76,10 @@ export function getPostgresDatabase(): PostgresDatabase {
         "Set it in .env.local for local dev or in Vercel project settings for production."
       );
     }
+    // Debug: Log the DATABASE_URL (masking password for security)
+    const maskedUrl = databaseUrl.replace(/:([^:@]+)@/, ':***@');
+    console.log(`[DB] Connecting to Postgres: ${maskedUrl}`);
+
     const sql = neon(databaseUrl);
     g[PG_GLOBAL_KEY] = drizzle(sql, { schema });
   }
