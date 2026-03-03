@@ -385,6 +385,7 @@ function RecentSessions({
   onSessionClick: (id: string) => void;
 }) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const workspacesHook = useWorkspaces();
 
   useEffect(() => {
     const fetchSessions = async () => {
@@ -402,7 +403,7 @@ function RecentSessions({
     fetchSessions();
   }, [workspaceId, refreshKey]);
 
-  if (sessions.length === 0) return null;
+  if (sessions.length === 0 && workspacesHook.workspaces.length === 0) return null;
 
   const formatTime = (dateStr: string) => {
     const diffMs = Date.now() - new Date(dateStr).getTime();
@@ -423,36 +424,70 @@ function RecentSessions({
 
   return (
     <div className="px-6 pb-6">
-      <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-            Recent
-          </h3>
-          <div className="flex-1 h-px bg-gray-100 dark:bg-[#171a24]" />
-          <a
-            href="/sessions"
-            className="text-[11px] text-amber-600 dark:text-amber-500 hover:text-amber-700 dark:hover:text-amber-400 transition-colors"
-          >
-            View all →
-          </a>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {sessions.map((s) => (
-            <button
-              key={s.sessionId}
-              onClick={() => onSessionClick(s.sessionId)}
-              className="group flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-[#12141c] border border-gray-100 dark:border-[#1c1f2e] hover:border-amber-300 dark:hover:border-amber-700/50 transition-all hover:shadow-sm"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-amber-500 transition-colors" />
-              <span className="text-xs text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors max-w-[160px] truncate">
-                {getDisplayName(s)}
-              </span>
-              <span className="text-[10px] text-gray-300 dark:text-gray-600 font-mono">
-                {formatTime(s.createdAt)}
-              </span>
-            </button>
-          ))}
-        </div>
+      <div className="max-w-2xl mx-auto space-y-4">
+        {/* Workspaces Section */}
+        {workspacesHook.workspaces.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                Workspaces
+              </h3>
+              <div className="flex-1 h-px bg-gray-100 dark:bg-[#171a24]" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {workspacesHook.workspaces.slice(0, 6).map((ws) => (
+                <a
+                  key={ws.id}
+                  href={`/workspace/${ws.id}`}
+                  className="group flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-[#12141c] border border-gray-100 dark:border-[#1c1f2e] hover:border-amber-300 dark:hover:border-amber-700/50 transition-all hover:shadow-sm"
+                >
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-amber-500 transition-colors" />
+                  <span className="text-xs text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors max-w-[160px] truncate">
+                    {ws.title}
+                  </span>
+                  <span className="text-[10px] text-gray-300 dark:text-gray-600 font-mono">
+                    {formatTime(ws.updatedAt)}
+                  </span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent Sessions Section */}
+        {sessions.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                Recent Sessions
+              </h3>
+              <div className="flex-1 h-px bg-gray-100 dark:bg-[#171a24]" />
+              <a
+                href="/sessions"
+                className="text-[11px] text-amber-600 dark:text-amber-500 hover:text-amber-700 dark:hover:text-amber-400 transition-colors"
+              >
+                View all →
+              </a>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {sessions.map((s) => (
+                <button
+                  key={s.sessionId}
+                  onClick={() => onSessionClick(s.sessionId)}
+                  className="group flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-[#12141c] border border-gray-100 dark:border-[#1c1f2e] hover:border-amber-300 dark:hover:border-amber-700/50 transition-all hover:shadow-sm"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 dark:bg-blue-500 group-hover:bg-amber-500 transition-colors" />
+                  <span className="text-xs text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors max-w-[160px] truncate">
+                    {getDisplayName(s)}
+                  </span>
+                  <span className="text-[10px] text-gray-300 dark:text-gray-600 font-mono">
+                    {formatTime(s.createdAt)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

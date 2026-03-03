@@ -100,7 +100,7 @@ export function WorkspacePageClient() {
   const [traces, setTraces] = useState<TraceInfo[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showAgentInstallPopup, setShowAgentInstallPopup] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "notes" | "bg_tasks">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "notes" | "bg_tasks" | "tasks">("overview");
   const [bgTasks, setBgTasks] = useState<BackgroundTaskInfo[]>([]);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [dispatchPrompt, setDispatchPrompt] = useState("");
@@ -498,6 +498,14 @@ export function WorkspacePageClient() {
                 </span>
               )}
             </TabButton>
+            <TabButton active={activeTab === "tasks"} onClick={() => setActiveTab("tasks")}>
+              Tasks
+              {tasks.length > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full bg-gray-100 dark:bg-[#191c28] text-gray-500 dark:text-gray-400 font-mono">
+                  {tasks.length}
+                </span>
+              )}
+            </TabButton>
             <TabButton active={activeTab === "bg_tasks"} onClick={() => setActiveTab("bg_tasks")}>
               Background Tasks
               {bgTasks.length > 0 && (
@@ -511,7 +519,7 @@ export function WorkspacePageClient() {
           {/* ─── Tab Content ─────────────────────────────────────────── */}
           {activeTab === "overview" && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left 2/3: Sessions + Tasks */}
+              {/* Left 2/3: Sessions */}
               <div className="lg:col-span-2 space-y-6">
                 {/* Recent Sessions */}
                 <DashboardCard
@@ -547,33 +555,6 @@ export function WorkspacePageClient() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                       </svg>
                     </button>
-                  ))}
-                </DashboardCard>
-
-                {/* Tasks */}
-                <DashboardCard
-                  title="Tasks"
-                  count={tasks.length}
-                  emptyText="No tasks created yet."
-                >
-                  {tasks.slice(0, 6).map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-[#151720] transition-colors"
-                    >
-                      <TaskStatusIcon status={t.status} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">
-                          {t.title}
-                        </div>
-                        {t.objective && (
-                          <div className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
-                            {t.objective}
-                          </div>
-                        )}
-                      </div>
-                      <TaskStatusBadge status={t.status} />
-                    </div>
                   ))}
                 </DashboardCard>
               </div>
@@ -1200,6 +1181,7 @@ export function WorkspacePageClient() {
             <NotesTab
               notes={notesHook.notes}
               loading={notesHook.loading}
+              workspaceId={workspaceId}
               onCreateNote={async (title, content, type) => {
                 await notesHook.createNote({
                   title,
@@ -1210,6 +1192,14 @@ export function WorkspacePageClient() {
               onDeleteNote={async (noteId) => {
                 await notesHook.deleteNote(noteId);
               }}
+            />
+          )}
+
+          {activeTab === "tasks" && (
+            <TasksTab
+              tasks={tasks}
+              workspaceId={workspaceId}
+              onRefresh={() => setRefreshKey((k) => k + 1)}
             />
           )}
         </div>
@@ -1409,11 +1399,129 @@ function AgentStatusDot({ status }: { status: string }) {
   );
 }
 
+// ─── Tasks Tab ─────────────────────────────────────────────────────
+
+function TasksTab({
+  tasks,
+  workspaceId,
+  onRefresh,
+}: {
+  tasks: Array<{
+    id: string;
+    title: string;
+    objective?: string;
+    status: string;
+    assignedTo?: string;
+    createdAt: string;
+  }>;
+  workspaceId: string;
+  onRefresh: () => void;
+}) {
+  const [expandedTask, setExpandedTask] = useState<string | null>(null);
+
+  return (
+    <div className="max-w-5xl">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Tasks & Specs</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Manage workspace tasks and their associated specifications
+          </p>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#191c28] transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Refresh
+        </button>
+      </div>
+
+      {tasks.length === 0 ? (
+        <div className="text-center py-12 text-gray-400 dark:text-gray-500">
+          <svg className="w-10 h-10 mx-auto mb-3 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-sm font-medium">No tasks yet</p>
+          <p className="text-[12px] mt-1">Tasks will appear here as they are created.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {tasks.map((task) => (
+            <div
+              key={task.id}
+              className="bg-white dark:bg-[#12141c] rounded-xl border border-gray-200/60 dark:border-[#1c1f2e] overflow-hidden transition-shadow hover:shadow-sm"
+            >
+              <button
+                onClick={() => setExpandedTask(expandedTask === task.id ? null : task.id)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left"
+              >
+                <TaskStatusIcon status={task.status} />
+                <div className="flex-1 min-w-0">
+                  <span className="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate block">
+                    {task.title}
+                  </span>
+                  {task.objective && (
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500 truncate block">
+                      {task.objective}
+                    </span>
+                  )}
+                </div>
+                <TaskStatusBadge status={task.status} />
+                <span className="text-[10px] text-gray-400 dark:text-gray-600 font-mono shrink-0">
+                  {formatRelativeTime(task.createdAt)}
+                </span>
+                <svg
+                  className={`w-3.5 h-3.5 text-gray-400 dark:text-gray-500 transition-transform ${expandedTask === task.id ? "rotate-90" : ""}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+              </button>
+              {expandedTask === task.id && (
+                <div className="px-4 pb-4 border-t border-gray-100 dark:border-[#191c28]">
+                  <div className="mt-3 space-y-2">
+                    <div className="text-[12px] text-gray-600 dark:text-gray-400">
+                      <span className="font-semibold">ID:</span> <code className="font-mono text-[11px]">{task.id}</code>
+                    </div>
+                    {task.assignedTo && (
+                      <div className="text-[12px] text-gray-600 dark:text-gray-400">
+                        <span className="font-semibold">Assigned to:</span> {task.assignedTo}
+                      </div>
+                    )}
+                    <div className="text-[12px] text-gray-600 dark:text-gray-400">
+                      <span className="font-semibold">Created:</span> {new Date(task.createdAt).toLocaleString()}
+                    </div>
+                    {task.objective && (
+                      <div className="mt-3 p-3 bg-gray-50 dark:bg-[#0a0c12] rounded-lg">
+                        <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">Objective</div>
+                        <div className="text-[12px] text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                          {task.objective}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Notes Tab ─────────────────────────────────────────────────────
 
 function NotesTab({
   notes,
   loading,
+  workspaceId,
   onCreateNote,
   onDeleteNote,
 }: {
@@ -1426,6 +1534,7 @@ function NotesTab({
     updatedAt: string;
   }>;
   loading: boolean;
+  workspaceId: string;
   onCreateNote: (title: string, content: string, type: "spec" | "task" | "general") => Promise<void>;
   onDeleteNote: (noteId: string) => Promise<void>;
 }) {
@@ -1469,7 +1578,12 @@ function NotesTab({
   return (
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Workspace Notes</h2>
+        <div>
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Workspace Notes</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Notes are bound to workspace: {workspaceId}
+          </p>
+        </div>
         <button
           onClick={() => setShowForm(!showForm)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-amber-600 dark:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
