@@ -868,7 +868,7 @@ function CustomAcpProvidersSection() {
       .map((a) => a.trim())
       .filter(Boolean);
 
-    const id = editingId ?? `custom-${Date.now()}`;
+    const id = editingId ?? `custom-${crypto.randomUUID()}`;
     const entry: CustomAcpProvider = {
       id,
       name,
@@ -949,7 +949,7 @@ function CustomAcpProvidersSection() {
             />
           </div>
           <div>
-            <label className={labelCls}>Args (space-separated)</label>
+            <label className={labelCls}>Args (space-separated, no quoted spaces)</label>
             <input
               value={form.args}
               onChange={(e) => setForm({ ...form, args: e.target.value })}

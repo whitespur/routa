@@ -25,7 +25,19 @@ import {
   logRuntime,
   toErrorMessage,
 } from "../utils/diagnostics";
-import { loadCustomAcpProviders } from "../utils/custom-acp-providers";
+import { loadCustomAcpProviders, type CustomAcpProvider } from "../utils/custom-acp-providers";
+
+/** Convert a custom ACP provider to AcpProviderInfo for the provider list. */
+function toAcpProviderInfo(cp: CustomAcpProvider): AcpProviderInfo {
+  return {
+    id: cp.id,
+    name: cp.name,
+    description: cp.description ?? `Custom: ${[cp.command, ...cp.args].join(" ")}`,
+    command: cp.command,
+    status: "available",
+    source: "static",
+  };
+}
 
 /**
  * Authentication error info for display in UI.
@@ -115,14 +127,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       const localProviders = await client.listProviders(false, false);
 
       // Merge in user-defined custom ACP providers
-      const customProviders = loadCustomAcpProviders().map((cp): AcpProviderInfo => ({
-        id: cp.id,
-        name: cp.name,
-        description: cp.description ?? `Custom: ${cp.command} ${cp.args.join(" ")}`.trim(),
-        command: cp.command,
-        status: "available",
-        source: "static",
-      }));
+      const customProviders = loadCustomAcpProviders().map(toAcpProviderInfo);
       const allLocalProviders = [...localProviders, ...customProviders];
 
       client.onUpdate((update) => {
@@ -149,14 +154,7 @@ export function useAcp(baseUrl: string = ""): UseAcpState & UseAcpActions {
       client.listProviders(true, false).then((checkedLocalProviders) => {
         // Only update local providers (source === 'static'), keep existing registry providers
         // Re-merge custom providers (they are always "available")
-        const customProvs = loadCustomAcpProviders().map((cp): AcpProviderInfo => ({
-          id: cp.id,
-          name: cp.name,
-          description: cp.description ?? `Custom: ${cp.command} ${cp.args.join(" ")}`.trim(),
-          command: cp.command,
-          status: "available",
-          source: "static",
-        }));
+        const customProvs = loadCustomAcpProviders().map(toAcpProviderInfo);
         setState((s) => {
           const existingRegistry = s.providers.filter((p) => p.source === "registry");
           return {
