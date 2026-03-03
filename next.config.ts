@@ -8,10 +8,6 @@ const isDesktopStandaloneBuild = process.env.ROUTA_DESKTOP_STANDALONE === "1";
 const rustBackendUrl = process.env.ROUTA_RUST_BACKEND_URL;
 
 const nextConfig: NextConfig = {
-  eslint: {
-    // Disable ESLint during build to avoid circular structure error
-    ignoreDuringBuilds: true,
-  },
   typescript: {
     tsconfigPath: isDesktopServerBuild ? "tsconfig.desktop.json" : "tsconfig.json",
   },

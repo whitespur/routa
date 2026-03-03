@@ -44,7 +44,8 @@
       "WebFetch(domain:github.com)",
       "WebSearch",
       "Bash(wc:*)",
-      "Bash(gh issue edit:*)"
+      "Bash(gh issue edit:*)",
+      "Bash(gh issue close:*)"
     ]
   }
 }
