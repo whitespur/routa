@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { TracePanel } from "@/client/components/trace-panel";
 import { EventBridgeTracePanel } from "@/client/components/event-bridge-trace-panel";
 import { AGUITracePanel } from "@/client/components/ag-ui-trace-panel";
@@ -30,6 +31,8 @@ interface Session {
 }
 
 export default function TracePage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -85,7 +88,11 @@ export default function TracePage() {
 
       setSessions(sessionList);
 
-      if (!selectedSessionId && sessionList.length > 0) {
+      // Check URL parameter first, then use first session
+      const urlSessionId = searchParams.get("sessionId");
+      if (urlSessionId && sessionList.some(s => s.sessionId === urlSessionId)) {
+        setSelectedSessionId(urlSessionId);
+      } else if (!selectedSessionId && sessionList.length > 0) {
         setSelectedSessionId(sessionList[0].sessionId);
       }
     } catch (err) {
@@ -93,7 +100,7 @@ export default function TracePage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSessionId]);
+  }, [selectedSessionId, searchParams]);
 
   // Fetch traces for the selected session (shared across all view tabs)
   const fetchSessionTraces = useCallback(async () => {
@@ -123,6 +130,22 @@ export default function TracePage() {
   useEffect(() => {
     fetchSessionTraces();
   }, [fetchSessionTraces]);
+
+  // Update URL when session changes
+  const handleSessionSelect = (sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("sessionId", sessionId);
+    router.push(`/traces?${params.toString()}`);
+  };
+
+  // Copy current URL to clipboard
+  const copyCurrentUrl = () => {
+    if (typeof window !== "undefined" && selectedSessionId) {
+      const url = `${window.location.origin}/traces?sessionId=${selectedSessionId}`;
+      navigator.clipboard.writeText(url);
+    }
+  };
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -156,6 +179,23 @@ export default function TracePage() {
               Browse and analyze agent execution traces
             </p>
           </div>
+          {selectedSessionId && (
+            <div className="flex items-center gap-2 ml-4 pl-4 border-l border-gray-200 dark:border-gray-700">
+              <button
+                onClick={copyCurrentUrl}
+                className="group flex items-center gap-2 px-2.5 py-1.5 rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                title="Copy shareable URL"
+              >
+                <span className="text-xs text-gray-500 dark:text-gray-400">Session:</span>
+                <code className="text-xs font-mono text-gray-700 dark:text-gray-300">
+                  {selectedSessionId.slice(0, 8)}...
+                </code>
+                <svg className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* View tab switcher */}
@@ -238,7 +278,7 @@ export default function TracePage() {
                   {sessions.map((session) => (
                     <button
                       key={session.sessionId}
-                      onClick={() => setSelectedSessionId(session.sessionId)}
+                      onClick={() => handleSessionSelect(session.sessionId)}
                       className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${
                         selectedSessionId === session.sessionId
                           ? "bg-blue-50 dark:bg-blue-900/20 border-l-2 border-blue-500"
