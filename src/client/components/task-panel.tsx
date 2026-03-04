@@ -57,6 +57,10 @@ interface TaskPanelProps {
   concurrency?: number;
   /** Callback when concurrency changes */
   onConcurrencyChange?: (n: number) => void;
+  /** Abort a running CRAFTER agent */
+  onAbortCrafter?: (agentId: string, sessionId: string) => Promise<void>;
+  /** Manually mark a CRAFTER agent as done */
+  onMarkDoneCrafter?: (agentId: string) => void;
 }
 
 export function TaskPanel({
@@ -71,6 +75,8 @@ export function TaskPanel({
   onSelectCrafter,
   concurrency = 1,
   onConcurrencyChange,
+  onAbortCrafter,
+  onMarkDoneCrafter,
 }: TaskPanelProps) {
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);

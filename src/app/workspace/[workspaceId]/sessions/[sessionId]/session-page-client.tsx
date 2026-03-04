@@ -18,7 +18,6 @@ import {useRouter, useParams} from "next/navigation";
 import {SkillPanel} from "@/client/components/skill-panel";
 import {ChatPanel} from "@/client/components/chat-panel";
 import {SessionPanel} from "@/client/components/session-panel";
-import {SessionContextPanel} from "@/client/components/session-context-panel";
 import {SpecialistManager} from "@/client/components/specialist-manager";
 import {type CrafterAgent, type CrafterMessage, TaskPanel} from "@/client/components/task-panel";
 import {CollaborativeTaskEditor} from "@/client/components/collaborative-task-editor";
@@ -130,7 +129,6 @@ export function SessionPageClient() {
   const { workspaceId, sessionId, isResolved } = useRealParams();
 
   const [refreshKey, setRefreshKey] = useState(0);
-  const [contextRefreshTrigger, setContextRefreshTrigger] = useState(0); // 用于刷新 SessionContextPanel
   const [selectedAgent, setSelectedAgent] = useState<AgentRole>("ROUTA");
   const [selectedSpecialistId, setSelectedSpecialistId] = useState<string | null>(null);
   const [specialists, setSpecialists] = useState<SpecialistOption[]>([]);
@@ -234,14 +232,6 @@ export function SessionPageClient() {
   const [crafterAgents, setCrafterAgents] = useState<CrafterAgent[]>([]);
   const [activeCrafterId, setActiveCrafterId] = useState<string | null>(null);
   const [concurrency, setConcurrency] = useState(1);
-
-  // ── Refresh SessionContextPanel when new child sessions are created ──
-  useEffect(() => {
-    // 当 crafterAgents 数组长度变化时，说明有新的 child session 创建
-    if (crafterAgents.length > 0) {
-      setContextRefreshTrigger((prev) => prev + 1);
-    }
-  }, [crafterAgents.length]);
 
   // ── Tool mode state ──────────────────────────────────────────────────
   const [toolMode, setToolMode] = useState<"essential" | "full">("essential");
@@ -1107,6 +1097,89 @@ export function SessionPageClient() {
   }, []);
 
   /**
+   * Abort a running CRAFTER agent by sending session/cancel to the child session.
+   */
+  const handleAbortCrafter = useCallback(async (agentId: string, childSessionId: string) => {
+    if (!childSessionId) return;
+    try {
+      await fetch("/api/acp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: Date.now(),
+          method: "session/cancel",
+          params: { sessionId: childSessionId },
+        }),
+      });
+      console.log(`[SessionPage] Aborted CRAFTER agent ${agentId} (session: ${childSessionId})`);
+    } catch (err) {
+      console.error("[SessionPage] Failed to abort CRAFTER:", err);
+    }
+    // Update UI regardless of API success
+    setCrafterAgents((prev) =>
+      prev.map((a) =>
+        a.id === agentId
+          ? {
+              ...a,
+              status: "error" as const,
+              messages: [
+                ...a.messages,
+                {
+                  id: crypto.randomUUID(),
+                  role: "info" as const,
+                  content: "Aborted by user",
+                  timestamp: new Date(),
+                },
+              ],
+            }
+          : a
+      )
+    );
+    // Reset the associated task back to "confirmed" so it can be re-run
+    const agent = crafterAgents.find((a) => a.id === agentId);
+    if (agent?.taskId) {
+      setRoutaTasks((prev) =>
+        prev.map((t) => (t.id === agent.taskId ? { ...t, status: "confirmed" as const } : t))
+      );
+    }
+  }, [crafterAgents]);
+
+  /**
+   * Manually mark a CRAFTER agent as done without waiting for report_to_parent.
+   */
+  const handleMarkDoneCrafter = useCallback((agentId: string) => {
+    setCrafterAgents((prev) =>
+      prev.map((a) =>
+        a.id === agentId
+          ? {
+              ...a,
+              status: "completed" as const,
+              messages: [
+                ...a.messages,
+                {
+                  id: crypto.randomUUID(),
+                  role: "info" as const,
+                  content: "Marked as done by user",
+                  timestamp: new Date(),
+                },
+              ],
+            }
+          : a
+      )
+    );
+    const agent = crafterAgents.find((a) => a.id === agentId);
+    if (agent?.taskId) {
+      setRoutaTasks((prev) =>
+        prev.map((t) => (t.id === agent.taskId ? { ...t, status: "completed" as const } : t))
+      );
+    }
+  }, [crafterAgents]);
+
+  /**
    * Execute a single collaborative task note by creating it in the MCP task store
    * and delegating to a CRAFTER agent.
    */
@@ -1354,7 +1427,7 @@ export function SessionPageClient() {
           <select
             value={selectedSpecialistId ? `specialist:${selectedSpecialistId}` : selectedAgent}
             onChange={(e) => handleAgentChange(e.target.value)}
-            className="appearance-none pl-2.5 pr-6 py-0.5 text-xs font-medium rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] text-gray-900 dark:text-gray-100 cursor-pointer focus:ring-1 focus:ring-1 focus:ring-blue-500"
+            className="appearance-none pl-2.5 pr-6 py-0.5 text-xs font-medium rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] text-gray-900 dark:text-gray-100 cursor-pointer focus:ring-1 focus:ring-blue-500"
           >
             {/* Built-in roles */}
             {BUILTIN_ROLES.map((r) => (
@@ -1377,18 +1450,6 @@ export function SessionPageClient() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </div>
-
-        {/* New Session Button */}
-        <button
-          onClick={() => handleCreateSession(acp.selectedProvider)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white transition-colors"
-          title="Create new session"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          <span className="hidden sm:inline">New</span>
-        </button>
 
         {/* Spacer */}
         <div className="flex-1" />
@@ -1532,53 +1593,42 @@ export function SessionPageClient() {
             </div>
           </div>
 
-          {/* Session Context Panel - shows current session info and hierarchy */}
-          <SessionContextPanel
-            sessionId={sessionId}
-            workspaceId={workspaceId}
-            onSelectSession={handleSelectSession}
-            notes={sessionNotes}
-            refreshTrigger={contextRefreshTrigger}
-          />
-
-          {/* New Session Button */}
-          <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+          {/* Sessions header + New Session */}
+          <div className="px-3 py-2 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
+            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Sessions</span>
             <button
               onClick={() => handleCreateSession("")}
               disabled={acp.providers.length === 0 || !acp.selectedProvider}
-              className="w-full px-2 py-1.5 text-[11px] font-medium rounded-md bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
+              className="px-2 py-0.5 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              New Session
+              + New
             </button>
+          </div>
+
+          {/* Sessions - scrollable with max height */}
+          <div className="flex-1 min-h-0 max-h-[50%] overflow-y-auto">
+            <SessionPanel
+              selectedSessionId={sessionId}
+              onSelect={handleSelectSession}
+              refreshKey={refreshKey}
+              workspaceId={workspaceId}
+              onSessionDeleted={(deletedId) => {
+                if (sessionId === deletedId) {
+                  router.push(`/workspace/${workspaceId}`);
+                }
+              }}
+            />
           </div>
 
           {/* Divider */}
           <div className="mx-3 my-1 border-t border-gray-100 dark:border-gray-800 shrink-0" />
 
-          {/* Skills - scrollable, takes remaining space - collapsed by default */}
-          <details className="flex-1 min-h-0 overflow-hidden flex flex-col">
-            <summary className="px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors list-none">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Skills
-                  </span>
-                </div>
-                <svg className="w-3 h-3 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-            </summary>
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <SkillPanel skillsHook={skillsHook} />
-            </div>
-          </details>
+          {/* Skills - scrollable, takes remaining space */}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <SkillPanel
+              skillsHook={skillsHook}
+            />
+          </div>
 
           {/* Bottom actions */}
           <div className="p-2 border-t border-gray-100 dark:border-gray-800 space-y-1">
@@ -1683,6 +1733,8 @@ export function SessionPageClient() {
                 onSelectCrafter={handleSelectCrafter}
                 concurrency={concurrency}
                 onConcurrencyChange={handleConcurrencyChange}
+                onAbortCrafter={handleAbortCrafter}
+                onMarkDoneCrafter={handleMarkDoneCrafter}
               />
             )}
           </aside>

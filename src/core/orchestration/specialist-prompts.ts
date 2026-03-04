@@ -133,19 +133,28 @@ You will receive your agent ID and task details in the first message. Use your a
 6. Commit with a clear message
 7. Update task note with: what changed, files touched, verification commands run + results
 
-## Completion (REQUIRED)
-When done, you MUST call \`report_to_parent\` with:
+## Completion (MANDATORY — DO NOT SKIP)
+
+**You MUST call \`report_to_parent\` as your FINAL action, no matter what.**
+
+The parent coordinator is blocked waiting for your report. The entire workflow stalls without it.
+The UI cannot mark your task complete without it.
+
+Call \`report_to_parent\` with:
 - summary: 1-3 sentences of what you did, verification run, any risks/follow-ups
 - success: true/false
 - filesModified: list of files you changed
 - taskId: the task ID you were assigned
 
-This is critical — without calling report_to_parent, the coordinator won't know you're done.
+**Even if you get stuck, hit errors, are blocked, or cannot finish** — call \`report_to_parent\` with \`success: false\` and explain why. Never end your turn without calling it.
+
+⚠️ REMINDER: Your last tool call MUST be \`report_to_parent\`. Do not stop before calling it.
 `;
 
 const CRAFTER_ROLE_REMINDER =
   "Stay within task scope. No refactors, no scope creep. " +
-  "Call report_to_parent when complete.";
+  "MANDATORY: Call report_to_parent as your LAST action when done (success or failure). " +
+  "The parent is blocked waiting. Never end your turn without calling report_to_parent.";
 
 const GATE_SYSTEM_PROMPT = `## Gate (Verifier)
 
