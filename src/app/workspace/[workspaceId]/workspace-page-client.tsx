@@ -147,7 +147,7 @@ export function WorkspacePageClient() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`/api/sessions?workspaceId=${encodeURIComponent(workspaceId)}&limit=20`, { cache: "no-store" });
+        const res = await fetch(`/api/sessions?workspaceId=${encodeURIComponent(workspaceId)}&limit=100`, { cache: "no-store" });
         const data = await res.json();
         setSessions(Array.isArray(data?.sessions) ? data.sessions : []);
       } catch { /* ignore */ }
@@ -2532,6 +2532,9 @@ function SessionsOverview({ sessions, workspaceId, onNavigate, onRefresh }: Sess
           tree.get(parentId)!.push(session);
         });
         
+        // Store all sessions in a special "all" key for flat display
+        tree.set("all", allSessions);
+        
         setSessionTree(tree);
       })
       .catch(() => {})
@@ -2584,7 +2587,9 @@ function SessionsOverview({ sessions, workspaceId, onNavigate, onRefresh }: Sess
     setRenamingSession(null);
   };
 
-  const displaySessions = expanded ? (sessionTree.get("root") || sessions) : sessions.slice(0, 6);
+  const displaySessions = expanded 
+    ? (sessionTree.size > 0 ? (sessionTree.get("all") || []) : sessions)
+    : sessions.slice(0, 6);
 
   const renderSession = (session: SessionInfo, depth = 0) => {
     const children = sessionTree.get(session.sessionId) || [];
