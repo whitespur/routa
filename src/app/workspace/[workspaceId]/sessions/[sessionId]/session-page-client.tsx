@@ -1354,7 +1354,7 @@ export function SessionPageClient() {
           <select
             value={selectedSpecialistId ? `specialist:${selectedSpecialistId}` : selectedAgent}
             onChange={(e) => handleAgentChange(e.target.value)}
-            className="appearance-none pl-2.5 pr-6 py-0.5 text-xs font-medium rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] text-gray-900 dark:text-gray-100 cursor-pointer focus:ring-1 focus:ring-blue-500"
+            className="appearance-none pl-2.5 pr-6 py-0.5 text-xs font-medium rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2130] text-gray-900 dark:text-gray-100 cursor-pointer focus:ring-1 focus:ring-1 focus:ring-blue-500"
           >
             {/* Built-in roles */}
             {BUILTIN_ROLES.map((r) => (
@@ -1377,6 +1377,18 @@ export function SessionPageClient() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </div>
+
+        {/* New Session Button */}
+        <button
+          onClick={() => handleCreateSession(acp.selectedProvider)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white transition-colors"
+          title="Create new session"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          <span className="hidden sm:inline">New</span>
+        </button>
 
         {/* Spacer */}
         <div className="flex-1" />

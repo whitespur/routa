@@ -103,3 +103,4 @@ apps/desktop/src-tauri/icons/ios/
 **/_next/static/*
 target/
 .playwright-mcp/*
+*.png
