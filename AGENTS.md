@@ -60,5 +60,5 @@ Use `issues/_template.md` as the base. Key rules:
   for example:
   ```
   Co-authored-by: GitHub Copilot Agent <198982749+copilot@users.noreply.github.com>
-  Co-authored-by: Kiro <kiro@assistant.ai>
+  Co-authored-by: Kiro AI <kiro@kiro.dev>
   ```
