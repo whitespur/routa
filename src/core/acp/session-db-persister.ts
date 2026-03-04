@@ -154,7 +154,8 @@ export async function saveHistoryToDb(
       const pgStore = new PgAcpSessionStore(db);
       const session = await pgStore.get(sessionId);
       if (!session) return;
-      await pgStore.save({ ...session, messageHistory: history, updatedAt: new Date() });
+      const merged = mergeHistory(session.messageHistory ?? [], history);
+      await pgStore.save({ ...session, messageHistory: merged, updatedAt: new Date() });
     } else {
       // eslint-disable-next-line no-eval
       const dynamicRequire = eval("require") as NodeRequire;
@@ -163,11 +164,56 @@ export async function saveHistoryToDb(
       const sqliteStore = new SqliteAcpSessionStore(db);
       const session = await sqliteStore.get(sessionId);
       if (!session) return;
-      await sqliteStore.save({ ...session, messageHistory: history, updatedAt: new Date() });
+      const merged = mergeHistory(session.messageHistory ?? [], history);
+      await sqliteStore.save({ ...session, messageHistory: merged, updatedAt: new Date() });
     }
   } catch (err) {
     console.error(`[SessionDB] Failed to save history to ${driver}:`, err);
   }
+}
+
+/**
+ * Merge DB history with in-memory history to avoid losing older entries
+ * that were trimmed by limitHistorySize.
+ *
+ * Strategy: if the DB already has more entries than the incoming history,
+ * the in-memory store was likely truncated. We keep the DB prefix (older
+ * entries) and append only the new tail from the in-memory history.
+ */
+function mergeHistory(
+  dbHistory: unknown[],
+  inMemoryHistory: import("@/core/acp/http-session-store").SessionUpdateNotification[]
+): import("@/core/acp/http-session-store").SessionUpdateNotification[] {
+  if (dbHistory.length === 0) return inMemoryHistory;
+  if (inMemoryHistory.length === 0) return dbHistory as import("@/core/acp/http-session-store").SessionUpdateNotification[];
+
+  // Find where the in-memory history overlaps with the DB history.
+  // The first entry in inMemoryHistory should exist somewhere in dbHistory.
+  // If dbHistory is longer, it means older entries were trimmed from memory.
+  const firstInMemory = JSON.stringify(inMemoryHistory[0]);
+  let overlapIndex = -1;
+  // Search from the end of dbHistory backwards for efficiency
+  for (let i = dbHistory.length - 1; i >= 0; i--) {
+    if (JSON.stringify(dbHistory[i]) === firstInMemory) {
+      overlapIndex = i;
+      break;
+    }
+  }
+
+  if (overlapIndex >= 0) {
+    // DB has older entries before the overlap point — keep them
+    const prefix = dbHistory.slice(0, overlapIndex) as import("@/core/acp/http-session-store").SessionUpdateNotification[];
+    return [...prefix, ...inMemoryHistory];
+  }
+
+  // No overlap found — in-memory history is entirely new (or DB was empty/reset).
+  // If DB has more entries, keep DB prefix + append in-memory as new tail.
+  if (dbHistory.length > inMemoryHistory.length) {
+    return [...(dbHistory as import("@/core/acp/http-session-store").SessionUpdateNotification[]), ...inMemoryHistory];
+  }
+
+  // Default: in-memory is the authoritative source
+  return inMemoryHistory;
 }
 
 export async function loadHistoryFromDb(

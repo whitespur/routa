@@ -24,18 +24,37 @@ export async function GET(
   const consolidated = request.nextUrl.searchParams.get("consolidated") === "true";
 
   const store = getHttpSessionStore();
-  let history = store.getHistory(sessionId);
+  const inMemoryHistory = store.getHistory(sessionId);
 
-  // On serverless cold start, in-memory history is empty — load from DB
-  if (history.length === 0) {
-    const dbHistory = await loadHistoryFromDb(sessionId);
-    if (dbHistory.length > 0) {
-      // Populate in-memory store so subsequent requests are fast
-      for (const notification of dbHistory) {
-        store.pushNotificationToHistory(sessionId, notification);
-      }
-      history = dbHistory;
+  // Always check DB — it may contain older entries that were trimmed from memory
+  const dbHistory = await loadHistoryFromDb(sessionId);
+
+  let history: typeof inMemoryHistory;
+
+  if (inMemoryHistory.length === 0 && dbHistory.length > 0) {
+    // Cold start: populate in-memory store from DB
+    for (const notification of dbHistory) {
+      store.pushNotificationToHistory(sessionId, notification);
     }
+    history = dbHistory;
+  } else if (dbHistory.length > inMemoryHistory.length) {
+    // DB has older entries that were trimmed from in-memory store.
+    // Find where in-memory starts in DB and prepend the DB prefix.
+    const firstInMemory = JSON.stringify(inMemoryHistory[0]);
+    let overlapIndex = -1;
+    for (let i = dbHistory.length - 1; i >= 0; i--) {
+      if (JSON.stringify(dbHistory[i]) === firstInMemory) {
+        overlapIndex = i;
+        break;
+      }
+    }
+    if (overlapIndex > 0) {
+      history = [...dbHistory.slice(0, overlapIndex), ...inMemoryHistory];
+    } else {
+      history = inMemoryHistory;
+    }
+  } else {
+    history = inMemoryHistory;
   }
 
   const result = consolidated ? consolidateMessageHistory(history) : history;
