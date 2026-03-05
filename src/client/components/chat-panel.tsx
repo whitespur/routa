@@ -50,6 +50,8 @@ export interface ChatMessage {
   delegatedTaskId?: string;
   /** Completion summary when a delegated task completes */
   completionSummary?: string;
+  /** Raw update payload for debug/info display */
+  rawData?: Record<string, unknown>;
   planEntries?: PlanEntry[];
   usageUsed?: number;
   usageSize?: number;
@@ -809,10 +811,28 @@ export function ChatPanel({
             break;
           }
 
+          case "acp_status": {
+            const status = update.status as string | undefined;
+            const error = update.error as string | undefined;
+            const label = error
+              ? `acp_status: ${status ?? "?"} — ${error}`
+              : `acp_status: ${status ?? "?"}`;
+            arr.push({ id: uuidv4(), role: "info", content: label, timestamp: new Date(), rawData: update });
+            break;
+          }
+
           case "available_commands_update":
           case "config_option_update":
-          case "session_info_update":
+          case "session_info_update": {
+            arr.push({
+              id: uuidv4(),
+              role: "info",
+              content: kind,
+              timestamp: new Date(),
+              rawData: update,
+            });
             break;
+          }
 
           // ─── Input JSON Streaming ───────────────────────────────────
           case "tool_call_start": {

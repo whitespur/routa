@@ -59,7 +59,7 @@ export function MessageBubble({message}: { message: ChatMessage }) {
                     />
                 );
             }
-            return <InfoBubble content={message.content}/>;
+            return <InfoBubble content={message.content} rawData={message.rawData}/>;
         default:
             return null;
     }
@@ -626,7 +626,28 @@ function UsageBadge({used, size, costAmount, costCurrency}: {
     );
 }
 
-function InfoBubble({content}: { content: string }) {
+function InfoBubble({content, rawData}: { content: string; rawData?: Record<string, unknown> }) {
+    const [expanded, setExpanded] = useState(false);
+    if (rawData) {
+        return (
+            <div className="flex justify-center my-1">
+                <div className="max-w-xl w-full rounded-lg bg-gray-50 dark:bg-[#161922] border border-gray-100 dark:border-gray-800 text-[11px] text-gray-500 dark:text-gray-400 overflow-hidden">
+                    <button
+                        className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-[#1e2230] transition-colors text-left"
+                        onClick={() => setExpanded(v => !v)}
+                    >
+                        <span className="opacity-60">{expanded ? "▾" : "▸"}</span>
+                        <span className="font-mono">{content}</span>
+                    </button>
+                    {expanded && (
+                        <pre className="px-3 pb-2 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[10px] text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-800">
+                            {JSON.stringify(rawData, null, 2)}
+                        </pre>
+                    )}
+                </div>
+            </div>
+        );
+    }
     return (
         <div className="flex justify-center">
             <div
