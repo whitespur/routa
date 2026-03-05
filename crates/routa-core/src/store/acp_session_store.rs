@@ -188,7 +188,7 @@ impl AcpSessionStore {
 
                 let mut history: Vec<serde_json::Value> = match history_json {
                     Some(json) => serde_json::from_str(&json).unwrap_or_default(),
-                    None => return Ok(()), // Session doesn't exist
+                    None => return Ok(()), // Session doesn't exist in DB yet
                 };
 
                 // Append notification
@@ -206,5 +206,230 @@ impl AcpSessionStore {
             })
             .await
     }
+
+    /// Persist a newly created session to the database.
+    ///
+    /// Called immediately after `AcpManager::create_session` so the session
+    /// survives server restarts and is visible in the session list.
+    pub async fn create(
+        &self,
+        id: &str,
+        cwd: &str,
+        workspace_id: &str,
+        provider: Option<&str>,
+        role: Option<&str>,
+        parent_session_id: Option<&str>,
+    ) -> Result<(), ServerError> {
+        let id = id.to_string();
+        let cwd = cwd.to_string();
+        let workspace_id = workspace_id.to_string();
+        let provider = provider.map(|s| s.to_string());
+        let role = role.map(|s| s.to_string());
+        let parent_session_id = parent_session_id.map(|s| s.to_string());
+
+        self.db
+            .with_conn_async(move |conn| {
+                let now = chrono::Utc::now().timestamp_millis();
+                conn.execute(
+                    "INSERT OR IGNORE INTO acp_sessions
+                        (id, cwd, workspace_id, provider, role, parent_session_id,
+                         first_prompt_sent, message_history, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, '[]', ?7, ?7)",
+                    rusqlite::params![id, cwd, workspace_id, provider, role, parent_session_id, now],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Rename a session in the database.
+    pub async fn rename(&self, session_id: &str, name: &str) -> Result<(), ServerError> {
+        let id = session_id.to_string();
+        let name = name.to_string();
+        self.db
+            .with_conn_async(move |conn| {
+                let now = chrono::Utc::now().timestamp_millis();
+                conn.execute(
+                    "UPDATE acp_sessions SET name = ?1, updated_at = ?2 WHERE id = ?3",
+                    rusqlite::params![name, now, id],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Delete a session (and its history) from the database.
+    pub async fn delete(&self, session_id: &str) -> Result<(), ServerError> {
+        let id = session_id.to_string();
+        self.db
+            .with_conn_async(move |conn| {
+                conn.execute("DELETE FROM acp_sessions WHERE id = ?1", rusqlite::params![id])?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Mark a session's `first_prompt_sent` flag as true.
+    ///
+    /// Called after the user sends the first real prompt so the session is
+    /// no longer treated as "empty" in context views.
+    pub async fn set_first_prompt_sent(&self, session_id: &str) -> Result<(), ServerError> {
+        let id = session_id.to_string();
+        self.db
+            .with_conn_async(move |conn| {
+                let now = chrono::Utc::now().timestamp_millis();
+                conn.execute(
+                    "UPDATE acp_sessions SET first_prompt_sent = 1, updated_at = ?1 WHERE id = ?2",
+                    rusqlite::params![now, id],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Overwrite the full message history for a session.
+    ///
+    /// Called after a prompt turn completes to flush the in-memory history
+    /// accumulated by `AcpManager::push_to_history` into the database.
+    pub async fn save_history(
+        &self,
+        session_id: &str,
+        history: &[serde_json::Value],
+    ) -> Result<(), ServerError> {
+        let id = session_id.to_string();
+        let history_json = serde_json::to_string(history).unwrap_or_else(|_| "[]".to_string());
+        self.db
+            .with_conn_async(move |conn| {
+                let now = chrono::Utc::now().timestamp_millis();
+                conn.execute(
+                    "UPDATE acp_sessions SET message_history = ?1, updated_at = ?2 WHERE id = ?3",
+                    rusqlite::params![history_json, now, id],
+                )?;
+                Ok(())
+            })
+            .await
+    }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+    use crate::store::WorkspaceStore;
+
+    async fn setup() -> (AcpSessionStore, String) {
+        let db = Database::open_in_memory().expect("in-memory DB failed");
+        let workspace_store = WorkspaceStore::new(db.clone());
+        workspace_store.ensure_default().await.expect("ensure_default failed");
+
+        let store = AcpSessionStore::new(db);
+        let session_id = "test-session-1".to_string();
+        (store, session_id)
+    }
+
+    #[tokio::test]
+    async fn test_create_and_list_session() {
+        let (store, session_id) = setup().await;
+
+        store
+            .create(&session_id, "/tmp", "default", Some("claude"), Some("CRAFTER"), None)
+            .await
+            .expect("create failed");
+
+        let sessions = store.list(None, None).await.expect("list failed");
+        assert_eq!(sessions.len(), 1);
+        let s = &sessions[0];
+        assert_eq!(s.id, session_id);
+        assert_eq!(s.cwd, "/tmp");
+        assert_eq!(s.workspace_id, "default");
+        assert_eq!(s.provider.as_deref(), Some("claude"));
+        assert_eq!(s.role.as_deref(), Some("CRAFTER"));
+        assert!(!s.first_prompt_sent);
+        assert!(s.name.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_rename_session() {
+        let (store, session_id) = setup().await;
+        store
+            .create(&session_id, "/tmp", "default", Some("opencode"), Some("CRAFTER"), None)
+            .await
+            .expect("create failed");
+
+        store.rename(&session_id, "My Renamed Session").await.expect("rename failed");
+
+        let s = store.get(&session_id).await.expect("get failed").expect("should exist");
+        assert_eq!(s.name.as_deref(), Some("My Renamed Session"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_session() {
+        let (store, session_id) = setup().await;
+        store
+            .create(&session_id, "/tmp", "default", Some("opencode"), Some("CRAFTER"), None)
+            .await
+            .expect("create failed");
+
+        store.delete(&session_id).await.expect("delete failed");
+
+        let s = store.get(&session_id).await.expect("get failed");
+        assert!(s.is_none(), "session should be deleted");
+
+        let sessions = store.list(None, None).await.expect("list failed");
+        assert_eq!(sessions.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_set_first_prompt_sent() {
+        let (store, session_id) = setup().await;
+        store
+            .create(&session_id, "/tmp", "default", Some("opencode"), Some("CRAFTER"), None)
+            .await
+            .expect("create failed");
+
+        let s = store.get(&session_id).await.expect("get failed").expect("exists");
+        assert!(!s.first_prompt_sent);
+
+        store.set_first_prompt_sent(&session_id).await.expect("set_first_prompt_sent failed");
+
+        let s = store.get(&session_id).await.expect("get failed").expect("exists");
+        assert!(s.first_prompt_sent, "first_prompt_sent should be true");
+    }
+
+    #[tokio::test]
+    async fn test_save_history() {
+        let (store, session_id) = setup().await;
+        store
+            .create(&session_id, "/tmp", "default", Some("claude"), Some("CRAFTER"), None)
+            .await
+            .expect("create failed");
+
+        let history = vec![
+            serde_json::json!({"sessionId": session_id, "update": {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "Thinking..."}}}),
+            serde_json::json!({"sessionId": session_id, "update": {"sessionUpdate": "turn_complete"}}),
+        ];
+
+        store.save_history(&session_id, &history).await.expect("save_history failed");
+
+        let retrieved = store.get_history(&session_id).await.expect("get_history failed");
+        assert_eq!(retrieved.len(), 2);
+        assert_eq!(
+            retrieved[1]["update"]["sessionUpdate"].as_str(),
+            Some("turn_complete")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_parent_session_id() {
+        let (store, session_id) = setup().await;
+        let parent_id = "parent-session-99";
+
+        store
+            .create(&session_id, "/tmp", "default", Some("claude"), Some("CRAFTER"), Some(parent_id))
+            .await
+            .expect("create failed");
+
+        let s = store.get(&session_id).await.expect("get failed").expect("exists");
+        assert_eq!(s.parent_session_id.as_deref(), Some(parent_id));
+    }
+}

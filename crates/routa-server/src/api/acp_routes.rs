@@ -189,6 +189,11 @@ async fn acp_rpc(
                 .and_then(|v| v.as_str())
                 .unwrap_or(".")
                 .to_string();
+            let workspace_id = params
+                .get("workspaceId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("default")
+                .to_string();
             let provider = params
                 .get("provider")
                 .and_then(|v| v.as_str())
@@ -221,16 +226,34 @@ async fn acp_rpc(
                 .acp_manager
                 .create_session(
                     session_id.clone(),
-                    cwd,
-                    "default".to_string(),
+                    cwd.clone(),
+                    workspace_id.clone(),
                     provider.clone(),
                     role.clone(),
                     model.clone(),
-                    parent_session_id,
+                    parent_session_id.clone(),
                 )
                 .await
             {
                 Ok((_our_sid, _agent_sid)) => {
+                    // Persist the session to the database immediately so it survives restarts
+                    if let Err(e) = state
+                        .acp_session_store
+                        .create(
+                            &session_id,
+                            &cwd,
+                            &workspace_id,
+                            provider.as_deref(),
+                            role.as_deref(),
+                            parent_session_id.as_deref(),
+                        )
+                        .await
+                    {
+                        tracing::warn!("[ACP Route] Failed to persist session to DB: {}", e);
+                    } else {
+                        tracing::info!("[ACP Route] Session {} persisted to DB", session_id);
+                    }
+
                     Ok(AcpResponse::Json(Json(serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -320,10 +343,10 @@ async fn acp_rpc(
                     .acp_manager
                     .create_session(
                         session_id.clone(),
-                        cwd,
-                        workspace_id,
+                        cwd.clone(),
+                        workspace_id.clone(),
                         provider.clone(),
-                        role,
+                        role.clone(),
                         None, // model
                         None, // parent_session_id
                     )
@@ -336,6 +359,21 @@ async fn acp_rpc(
                             provider.as_deref().unwrap_or("opencode"),
                             agent_sid
                         );
+                        // Persist auto-created session to DB
+                        if let Err(e) = state
+                            .acp_session_store
+                            .create(
+                                &session_id,
+                                &cwd,
+                                &workspace_id,
+                                provider.as_deref(),
+                                role.as_deref(),
+                                None,
+                            )
+                            .await
+                        {
+                            tracing::warn!("[ACP Route] Failed to persist auto-created session: {}", e);
+                        }
                     }
                     Err(e) => {
                         tracing::error!("[ACP Route] Failed to auto-create session: {}", e);
@@ -387,6 +425,7 @@ async fn acp_rpc(
 
                 let stream: SseStream = if let Some(mut rx) = rx {
                     let session_id_clone = session_id.clone();
+                    let state_clone = state.clone();
                     Box::pin(async_stream::stream! {
                         // Stream notifications until turn_complete or disconnect
                         loop {
@@ -422,6 +461,11 @@ async fn acp_rpc(
                                 }
                             }
                         }
+                        // Persist history and mark first_prompt_sent after turn completes
+                        let _ = state_clone.acp_session_store.set_first_prompt_sent(&session_id_clone).await;
+                        if let Some(history) = state_clone.acp_manager.get_session_history(&session_id_clone).await {
+                            let _ = state_clone.acp_session_store.save_history(&session_id_clone, &history).await;
+                        }
                     })
                 } else {
                     // No broadcast channel - return empty stream with error
@@ -448,11 +492,18 @@ async fn acp_rpc(
 
             // For ACP providers, use the traditional JSON response
             match state.acp_manager.prompt(&session_id, &prompt_text).await {
-                Ok(result) => Ok(AcpResponse::Json(Json(serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": result,
-                })))),
+                Ok(result) => {
+                    // Persist history and mark first_prompt_sent after turn completes
+                    let _ = state.acp_session_store.set_first_prompt_sent(&session_id).await;
+                    if let Some(history) = state.acp_manager.get_session_history(&session_id).await {
+                        let _ = state.acp_session_store.save_history(&session_id, &history).await;
+                    }
+                    Ok(AcpResponse::Json(Json(serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": result,
+                    }))))
+                }
                 Err(e) => {
                     tracing::error!("[ACP Route] Prompt failed: {}", e);
                     Ok(AcpResponse::Json(Json(serde_json::json!({

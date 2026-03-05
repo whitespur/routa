@@ -176,11 +176,23 @@ async fn rename_session(
         return Err(ServerError::BadRequest("Invalid name".to_string()));
     }
 
-    state
+    // Update in-memory (may be None if session is DB-only after restart)
+    let in_memory_found = state
         .acp_manager
         .rename_session(&session_id, name)
         .await
-        .ok_or_else(|| ServerError::NotFound("Session not found".to_string()))?;
+        .is_some();
+
+    // Always persist the rename to the database
+    state.acp_session_store.rename(&session_id, name).await?;
+
+    // If neither memory nor DB had the session, return 404
+    if !in_memory_found {
+        // Verify it exists in DB (rename is idempotent, so check row count via get)
+        if state.acp_session_store.get(&session_id).await?.is_none() {
+            return Err(ServerError::NotFound("Session not found".to_string()));
+        }
+    }
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -190,11 +202,22 @@ async fn delete_session(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    state
+    // Try to kill in-memory process (may be None if DB-only after restart)
+    let in_memory_found = state
         .acp_manager
         .delete_session(&session_id)
         .await
-        .ok_or_else(|| ServerError::NotFound("Session not found".to_string()))?;
+        .is_some();
+
+    // Always delete from the database
+    state.acp_session_store.delete(&session_id).await?;
+
+    // If neither memory nor DB had the session, return 404
+    if !in_memory_found {
+        // We already deleted from DB; if 0 rows, it was already gone
+        // Return 404 only when we have confirmation it doesn't exist
+        // (delete is idempotent, so we just return ok even if not found)
+    }
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
