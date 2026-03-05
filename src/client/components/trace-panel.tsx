@@ -1049,7 +1049,7 @@ function AgentResponseBlock({
             if (item.type === "tool" && item.merged) {
               return (
                 <InlineToolView
-                  key={item.merged.toolCallId}
+                  key={`tool-${idx}-${item.merged.toolCallId}`}
                   merged={item.merged}
                   formatTime={formatTime}
                 />
