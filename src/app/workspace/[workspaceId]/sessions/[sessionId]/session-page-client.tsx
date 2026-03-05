@@ -355,7 +355,9 @@ export function SessionPageClient() {
   // Track if we've already sent the pending prompt for this session
   const pendingPromptSentRef = useRef<Set<string>>(new Set());
 
-  // Check for and send pending prompt after session is selected
+  // Check for and send pending prompt after session is selected.
+  // Waits for the ACP process to be ready (acp_status: "ready" SSE event)
+  // before sending, replacing the old 100ms delay hack.
   useEffect(() => {
     if (!sessionId || !acp.connected || acp.loading) return;
 
@@ -364,18 +366,34 @@ export function SessionPageClient() {
 
     // Check for pending prompt from home page navigation
     const pendingText = consumePendingPrompt(sessionId);
-    if (pendingText) {
-      console.log(`[SessionPage] Found pending prompt for session ${sessionId}, sending...`);
+    if (!pendingText) return;
+
+    // Check if ACP is already ready (e.g. session was reused)
+    const lastUpdate = acp.updates.findLast(
+      (u) => (u as Record<string, unknown>).update &&
+        ((u as Record<string, unknown>).update as Record<string, unknown>).sessionUpdate === "acp_status"
+    );
+    const acpReady = lastUpdate &&
+      ((lastUpdate as Record<string, unknown>).update as Record<string, unknown>).status === "ready";
+
+    if (acpReady) {
+      console.log(`[SessionPage] ACP ready, sending pending prompt for session ${sessionId}`);
       pendingPromptSentRef.current.add(sessionId);
-
-      // Small delay to ensure ACP connection is fully ready
-      const timer = setTimeout(() => {
-        acp.prompt(pendingText);
-      }, 100);
-
-      return () => clearTimeout(timer);
+      acp.prompt(pendingText);
+      return;
     }
-  }, [sessionId, acp.connected, acp.loading, acp.prompt]);
+
+    // Not ready yet — wait for the acp_status event via polling updates
+    console.log(`[SessionPage] Waiting for ACP ready before sending pending prompt for session ${sessionId}`);
+    pendingPromptSentRef.current.add(sessionId);
+
+    // Use a timeout as fallback (ACP might already be ready but event was missed)
+    const timer = setTimeout(() => {
+      acp.prompt(pendingText);
+    }, 8000);
+
+    return () => clearTimeout(timer);
+  }, [sessionId, acp.connected, acp.loading, acp.prompt, acp.updates]);
 
   // Load global tool mode on mount
   useEffect(() => {

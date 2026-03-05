@@ -48,8 +48,21 @@ import {
 import { persistSessionToDb, renameSessionInDb, saveHistoryToDb } from "@/core/acp/session-db-persister";
 import { resolveSkillContent } from "@/core/skills/skill-resolver";
 import type { SessionUpdateNotification } from "@/core/acp/http-session-store";
+import { SessionWriteBuffer } from "@/core/acp/session-write-buffer";
 
 export const dynamic = "force-dynamic";
+
+// ─── Session write buffer singleton ─────────────────────────────────────
+// Batches and debounces history writes to reduce I/O during streaming.
+let _writeBuffer: SessionWriteBuffer | null = null;
+function getSessionWriteBuffer(): SessionWriteBuffer {
+  if (!_writeBuffer) {
+    _writeBuffer = new SessionWriteBuffer({
+      persistFn: saveHistoryToDb,
+    });
+  }
+  return _writeBuffer;
+}
 
 // ─── Idempotency cache for session/new requests ─────────────────────────
 // Prevents duplicate session creation when user clicks multiple times
@@ -282,224 +295,35 @@ export async function POST(request: NextRequest) {
       // opencode-sdk is the SDK-based adapter for connecting to remote OpenCode server
       const isOpencodeSdk = provider === "opencode-sdk";
 
-      let acpSessionId: string;
-
-      if (isOpencodeSdk) {
-        // ── OpenCode SDK: remote server or direct API mode ──────────────
-        if (!isOpencodeServerConfigured()) {
-          return jsonrpcResponse(id ?? null, null, {
-            code: -32002,
-            message: "OpenCode SDK not configured. Set OPENCODE_SERVER_URL or OPENCODE_API_KEY (or ANTHROPIC_AUTH_TOKEN) environment variable.",
-          });
-        }
-
-        acpSessionId = await manager.createOpencodeSdkSession(
-          sessionId,
-          forwardSessionUpdate
-        );
-      } else if (isClaudeCodeSdk) {
-        // ── Claude Code SDK: direct API calls (for serverless environments) ──
-        if (!isClaudeCodeSdkConfigured()) {
-          return jsonrpcResponse(id ?? null, null, {
-            code: -32002,
-            message: "Claude Code SDK not configured. Set ANTHROPIC_AUTH_TOKEN environment variable.",
-          });
-        }
-
-        // Always use SDK adapter for claude-code-sdk provider
-        // Build AgentInstanceConfig from session params for model resolution
-        const instanceConfig: AgentInstanceConfig = {
-          model,
-          provider: "claude-code-sdk",
-          specialistId,
-          role,
-          baseUrl,
-          apiKey,
-        };
-        acpSessionId = await manager.createClaudeCodeSdkSession(
-          sessionId,
-          cwd,
-          forwardSessionUpdate,
-          instanceConfig,
-        );
-      } else if (isClaudeCode) {
-        // ── Claude Code: stream-json protocol with MCP (CLI process) ───
-        const mcpConfigs = await buildMcpConfigForClaude(workspaceId, sessionId);
-
-        acpSessionId = await manager.createClaudeSession(
-          sessionId,
-          cwd,
-          forwardSessionUpdate,
-          mcpConfigs,
-          modeId,
-          role, // Pass role so ROUTA gets bypassPermissions
-        );
-      } else if (customCommand) {
-        // ── Custom ACP provider (inline command + args from client) ─────
-        // Security: Avoid logging full command/args as they may contain secrets
-        console.log(`[ACP Route] Using custom provider: ${provider}`);
-        acpSessionId = await manager.createSessionFromInline(
-          sessionId,
-          customCommand,
-          customArgs ?? [],
-          cwd,
-          provider, // use provider name as display name
-          forwardSessionUpdate,
-        );
-      } else {
-        // ── Standard ACP agent ───────────────────────────────────────
-        // Build extra args: pass -m <model> if a model was specified
-        const extraArgs: string[] = [];
-        if (model && model.trim()) {
-          extraArgs.push("-m", model.trim());
-        }
-
-        acpSessionId = await manager.createSession(
-          sessionId,
-          cwd,
-          forwardSessionUpdate,
-          provider,
-          modeId,
-          extraArgs.length > 0 ? extraArgs : undefined,
-          undefined, // extraEnv
-          workspaceId,
-        );
-      }
-
-      // ── Register with orchestrator if role is ROUTA ──────────────
-      let routaAgentId: string | undefined;
-
-      if (role === "ROUTA") {
-        // Initialize orchestrator
-        // Detect actual server port for MCP URL generation
-        const serverPort = process.env.PORT ?? "3000";
-        const orchestrator = initRoutaOrchestrator({
-          defaultCrafterProvider: crafterProvider,
-          defaultGateProvider: gateProvider,
-          defaultCwd: cwd,
-          serverPort,
+      // ── Early validation (fail fast before async work) ─────────────
+      if (isOpencodeSdk && !isOpencodeServerConfigured()) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32002,
+          message: "OpenCode SDK not configured. Set OPENCODE_SERVER_URL or OPENCODE_API_KEY (or ANTHROPIC_AUTH_TOKEN) environment variable.",
         });
-
-        // Create a ROUTA agent record
-        const system = getRoutaSystem();
-        const agentResult = await system.tools.createAgent({
-          name: `routa-coordinator-${sessionId.slice(0, 8)}`,
-          role: AgentRole.ROUTA,
-          workspaceId: (p.workspaceId as string) || "default",
+      }
+      if (isClaudeCodeSdk && !isClaudeCodeSdkConfigured()) {
+        return jsonrpcResponse(id ?? null, null, {
+          code: -32002,
+          message: "Claude Code SDK not configured. Set ANTHROPIC_AUTH_TOKEN environment variable.",
         });
-
-        if (agentResult.success && agentResult.data) {
-          routaAgentId = (agentResult.data as { agentId: string }).agentId;
-          orchestrator.registerAgentSession(routaAgentId, sessionId);
-
-          // Set up notification handler for child agent updates
-          orchestrator.setNotificationHandler((targetSessionId, data) => {
-            store.pushNotification({
-              ...data as Record<string, unknown>,
-              sessionId: targetSessionId,
-            } as never);
-          });
-
-          // Set up session registration handler to add child sessions to sidebar
-          orchestrator.setSessionRegistrationHandler((childSession) => {
-            store.upsertSession({
-              sessionId: childSession.sessionId,
-              name: childSession.name,
-              cwd: childSession.cwd,
-              workspaceId: childSession.workspaceId,
-              routaAgentId: childSession.routaAgentId,
-              provider: childSession.provider,
-              role: childSession.role,
-              parentSessionId: childSession.parentSessionId,
-              createdAt: new Date().toISOString(),
-            });
-            // Persist child session to DB so parent-child relationship survives restarts
-            persistSessionToDb({
-              id: childSession.sessionId,
-              name: childSession.name,
-              cwd: childSession.cwd,
-              workspaceId: childSession.workspaceId,
-              routaAgentId: childSession.routaAgentId ?? "",
-              provider: childSession.provider ?? "",
-              role: childSession.role ?? "CRAFTER",
-              parentSessionId: childSession.parentSessionId,
-            }).catch((err: unknown) =>
-              console.error(`[ACP Route] Failed to persist child session ${childSession.sessionId}:`, err)
-            );
-            console.log(
-              `[ACP Route] Child session registered: ${childSession.sessionId} (parent: ${childSession.parentSessionId})`
-            );
-          });
-
-          console.log(
-            `[ACP Route] ROUTA coordinator agent created: ${routaAgentId}`
-          );
-        }
       }
 
-      // Load specialist system prompt if specialistId was provided
-      let specialistSystemPrompt: string | undefined;
-      if (specialistId) {
-        let specialist: { systemPrompt?: string; roleReminder?: string } | null | undefined;
-        if (isPostgres()) {
-          // Direct DB query — avoids module-level cache issues
-          try {
-            const db = getDatabase();
-            const specStore = new PostgresSpecialistStore(db);
-            specialist = await specStore.get(specialistId.toLowerCase());
-          } catch (err) {
-            console.warn(`[ACP Route] DB specialist lookup failed, trying cache:`, err);
-            specialist = loadSpecialistsSync().find(s => s.id === specialistId.toLowerCase());
-          }
-        } else {
-          // SQLite mode: only bundled specialists available in cache
-          specialist = loadSpecialistsSync().find(s => s.id === specialistId.toLowerCase());
-        }
-        if (specialist?.systemPrompt) {
-          let prompt = specialist.systemPrompt;
-          if (specialist.roleReminder) {
-            prompt += `\n\n---\n**Reminder:** ${specialist.roleReminder}`;
-          }
-          specialistSystemPrompt = prompt;
-          console.log(`[ACP Route] Loaded specialist systemPrompt for ${specialistId} (length: ${prompt.length})`);
-        } else {
-          console.warn(`[ACP Route] Specialist not found or has no systemPrompt: ${specialistId}`);
-        }
-      }
-
-      // Persist session for UI listing
+      // ── Register session in memory immediately (UI can navigate now) ──
       const now = new Date();
       store.upsertSession({
         sessionId,
         cwd,
         branch,
         workspaceId,
-        routaAgentId: routaAgentId ?? acpSessionId,
         provider,
         role: role ?? "CRAFTER",
         modeId,
         model,
         specialistId: specialistId ?? undefined,
-        specialistSystemPrompt,
+        acpStatus: "connecting",
         createdAt: now.toISOString(),
       });
-
-      // Also persist to database (SQLite in dev, Postgres in serverless)
-      await persistSessionToDb({
-        id: sessionId,
-        cwd,
-        branch,
-        workspaceId,
-        routaAgentId: routaAgentId ?? acpSessionId,
-        provider,
-        role: role ?? "CRAFTER",
-        modeId,
-        model,
-      });
-
-      console.log(
-        `[ACP Route] Session created: ${sessionId} (provider: ${provider}, agent session: ${acpSessionId}, role: ${role ?? "CRAFTER"})`
-      );
 
       // ── Cache for idempotency ─────────────────────────────────────────
       if (idempotencyKey) {
@@ -538,13 +362,213 @@ export async function POST(request: NextRequest) {
           );
       recordTrace(cwd, sessionStartTrace);
 
-      return jsonrpcResponse(id ?? null, {
+      // ── Return immediately — ACP creation happens in background ────
+      // The client navigates to the session page and listens for
+      // `acp_status` SSE events to know when the agent is ready.
+      const responsePayload = {
         sessionId,
         provider,
         role: role ?? "CRAFTER",
         model,
-        routaAgentId,
-      });
+        acpStatus: "connecting" as const,
+      };
+
+      // ── Background: spawn ACP process + orchestrator + DB persist ──
+      void (async () => {
+        try {
+          let acpSessionId: string;
+
+          if (isOpencodeSdk) {
+            acpSessionId = await manager.createOpencodeSdkSession(
+              sessionId,
+              forwardSessionUpdate
+            );
+          } else if (isClaudeCodeSdk) {
+            const instanceConfig: AgentInstanceConfig = {
+              model,
+              provider: "claude-code-sdk",
+              specialistId,
+              role,
+              baseUrl,
+              apiKey,
+            };
+            acpSessionId = await manager.createClaudeCodeSdkSession(
+              sessionId,
+              cwd,
+              forwardSessionUpdate,
+              instanceConfig,
+            );
+          } else if (isClaudeCode) {
+            const mcpConfigs = await buildMcpConfigForClaude(workspaceId, sessionId);
+            acpSessionId = await manager.createClaudeSession(
+              sessionId,
+              cwd,
+              forwardSessionUpdate,
+              mcpConfigs,
+              modeId,
+              role,
+            );
+          } else if (customCommand) {
+            console.log(`[ACP Route] Using custom provider: ${provider}`);
+            acpSessionId = await manager.createSessionFromInline(
+              sessionId,
+              customCommand,
+              customArgs ?? [],
+              cwd,
+              provider,
+              forwardSessionUpdate,
+            );
+          } else {
+            const extraArgs: string[] = [];
+            if (model && model.trim()) {
+              extraArgs.push("-m", model.trim());
+            }
+            acpSessionId = await manager.createSession(
+              sessionId,
+              cwd,
+              forwardSessionUpdate,
+              provider,
+              modeId,
+              extraArgs.length > 0 ? extraArgs : undefined,
+              undefined,
+              workspaceId,
+            );
+          }
+
+          // ── Register with orchestrator if role is ROUTA ──────────────
+          let routaAgentId: string | undefined;
+
+          if (role === "ROUTA") {
+            const serverPort = process.env.PORT ?? "3000";
+            const orchestrator = initRoutaOrchestrator({
+              defaultCrafterProvider: crafterProvider,
+              defaultGateProvider: gateProvider,
+              defaultCwd: cwd,
+              serverPort,
+            });
+
+            const system = getRoutaSystem();
+            const agentResult = await system.tools.createAgent({
+              name: `routa-coordinator-${sessionId.slice(0, 8)}`,
+              role: AgentRole.ROUTA,
+              workspaceId: (p.workspaceId as string) || "default",
+            });
+
+            if (agentResult.success && agentResult.data) {
+              routaAgentId = (agentResult.data as { agentId: string }).agentId;
+              orchestrator.registerAgentSession(routaAgentId, sessionId);
+
+              orchestrator.setNotificationHandler((targetSessionId, data) => {
+                store.pushNotification({
+                  ...data as Record<string, unknown>,
+                  sessionId: targetSessionId,
+                } as never);
+              });
+
+              orchestrator.setSessionRegistrationHandler((childSession) => {
+                store.upsertSession({
+                  sessionId: childSession.sessionId,
+                  name: childSession.name,
+                  cwd: childSession.cwd,
+                  workspaceId: childSession.workspaceId,
+                  routaAgentId: childSession.routaAgentId,
+                  provider: childSession.provider,
+                  role: childSession.role,
+                  parentSessionId: childSession.parentSessionId,
+                  createdAt: new Date().toISOString(),
+                });
+                persistSessionToDb({
+                  id: childSession.sessionId,
+                  name: childSession.name,
+                  cwd: childSession.cwd,
+                  workspaceId: childSession.workspaceId,
+                  routaAgentId: childSession.routaAgentId ?? "",
+                  provider: childSession.provider ?? "",
+                  role: childSession.role ?? "CRAFTER",
+                  parentSessionId: childSession.parentSessionId,
+                }).catch((err: unknown) =>
+                  console.error(`[ACP Route] Failed to persist child session ${childSession.sessionId}:`, err)
+                );
+              });
+
+              console.log(`[ACP Route] ROUTA coordinator agent created: ${routaAgentId}`);
+            }
+          }
+
+          // ── Load specialist system prompt ──────────────────────────────
+          let specialistSystemPrompt: string | undefined;
+          if (specialistId) {
+            let specialist: { systemPrompt?: string; roleReminder?: string } | null | undefined;
+            if (isPostgres()) {
+              try {
+                const db = getDatabase();
+                const specStore = new PostgresSpecialistStore(db);
+                specialist = await specStore.get(specialistId.toLowerCase());
+              } catch (err) {
+                console.warn(`[ACP Route] DB specialist lookup failed, trying cache:`, err);
+                specialist = loadSpecialistsSync().find(s => s.id === specialistId.toLowerCase());
+              }
+            } else {
+              specialist = loadSpecialistsSync().find(s => s.id === specialistId.toLowerCase());
+            }
+            if (specialist?.systemPrompt) {
+              let prompt = specialist.systemPrompt;
+              if (specialist.roleReminder) {
+                prompt += `\n\n---\n**Reminder:** ${specialist.roleReminder}`;
+              }
+              specialistSystemPrompt = prompt;
+            }
+          }
+
+          // ── Update session record with ACP details ─────────────────────
+          store.upsertSession({
+            sessionId,
+            cwd,
+            branch,
+            workspaceId,
+            routaAgentId: routaAgentId ?? acpSessionId,
+            provider,
+            role: role ?? "CRAFTER",
+            modeId,
+            model,
+            specialistId: specialistId ?? undefined,
+            specialistSystemPrompt,
+            acpStatus: "ready",
+            createdAt: now.toISOString(),
+          });
+
+          // Notify client that ACP is ready
+          store.updateSessionAcpStatus(sessionId, "ready");
+
+          // ── Persist to DB (fire-and-forget) ────────────────────────────
+          persistSessionToDb({
+            id: sessionId,
+            cwd,
+            branch,
+            workspaceId,
+            routaAgentId: routaAgentId ?? acpSessionId,
+            provider,
+            role: role ?? "CRAFTER",
+            modeId,
+            model,
+          }).catch((err) =>
+            console.error(`[ACP Route] Background DB persist failed for ${sessionId}:`, err)
+          );
+
+          console.log(
+            `[ACP Route] Session ready: ${sessionId} (provider: ${provider}, agent session: ${acpSessionId}, role: ${role ?? "CRAFTER"})`
+          );
+        } catch (err) {
+          console.error(`[ACP Route] Background ACP creation failed for ${sessionId}:`, err);
+          store.updateSessionAcpStatus(
+            sessionId,
+            "error",
+            err instanceof Error ? err.message : "ACP process creation failed",
+          );
+        }
+      })();
+
+      return jsonrpcResponse(id ?? null, responsePayload);
     }
 
     // ── session/prompt ─────────────────────────────────────────────────
@@ -803,12 +827,16 @@ export async function POST(request: NextRequest) {
               }
               store.flushAgentBuffer(sessionId);
               store.exitStreamingMode(sessionId);
-              await saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+              const wb = getSessionWriteBuffer();
+              for (const n of store.getConsolidatedHistory(sessionId)) wb.add(sessionId, n);
+              await wb.flush(sessionId);
               controller.close();
             } catch (err) {
               store.flushAgentBuffer(sessionId);
               store.exitStreamingMode(sessionId);
-              await saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+              const wb = getSessionWriteBuffer();
+              for (const n of store.getConsolidatedHistory(sessionId)) wb.add(sessionId, n);
+              await wb.flush(sessionId);
               const errorNotification = {
                 jsonrpc: "2.0",
                 method: "session/update",
@@ -873,12 +901,16 @@ export async function POST(request: NextRequest) {
               }
               store.flushAgentBuffer(sessionId);
               store.exitStreamingMode(sessionId);
-              await saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+              const wb2 = getSessionWriteBuffer();
+              for (const n of store.getConsolidatedHistory(sessionId)) wb2.add(sessionId, n);
+              await wb2.flush(sessionId);
               controller.close();
             } catch (err) {
               store.flushAgentBuffer(sessionId);
               store.exitStreamingMode(sessionId);
-              await saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+              const wb2 = getSessionWriteBuffer();
+              for (const n of store.getConsolidatedHistory(sessionId)) wb2.add(sessionId, n);
+              await wb2.flush(sessionId);
               // Send error event before closing
               const errorNotification = {
                 jsonrpc: "2.0",
@@ -957,11 +989,11 @@ export async function POST(request: NextRequest) {
           try {
             const result = await restarted.prompt(sessionId, promptText);
             store.flushAgentBuffer(sessionId);
-            void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+            { const wb = getSessionWriteBuffer(); for (const n of store.getConsolidatedHistory(sessionId)) wb.add(sessionId, n); void wb.flush(sessionId); }
             return jsonrpcResponse(id ?? null, result);
           } catch (err) {
             store.flushAgentBuffer(sessionId);
-            void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+            { const wb = getSessionWriteBuffer(); for (const n of store.getConsolidatedHistory(sessionId)) wb.add(sessionId, n); void wb.flush(sessionId); }
             return jsonrpcResponse(id ?? null, null, {
               code: -32000,
               message: err instanceof Error ? err.message : "Claude Code prompt failed after restart",
@@ -972,11 +1004,11 @@ export async function POST(request: NextRequest) {
         try {
           const result = await claudeProc.prompt(sessionId, promptText);
           store.flushAgentBuffer(sessionId);
-          void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+          { const wb = getSessionWriteBuffer(); for (const n of store.getConsolidatedHistory(sessionId)) wb.add(sessionId, n); void wb.flush(sessionId); }
           return jsonrpcResponse(id ?? null, result);
         } catch (err) {
           store.flushAgentBuffer(sessionId);
-          void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+          { const wb = getSessionWriteBuffer(); for (const n of store.getConsolidatedHistory(sessionId)) wb.add(sessionId, n); void wb.flush(sessionId); }
           return jsonrpcResponse(id ?? null, null, {
             code: -32000,
             message: err instanceof Error ? err.message : "Claude Code prompt failed",
@@ -1006,11 +1038,11 @@ export async function POST(request: NextRequest) {
       try {
         const result = await proc.prompt(acpSessionId, promptText);
         store.flushAgentBuffer(sessionId);
-        void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+        { const wb = getSessionWriteBuffer(); for (const n of store.getConsolidatedHistory(sessionId)) wb.add(sessionId, n); void wb.flush(sessionId); }
         return jsonrpcResponse(id ?? null, result);
       } catch (err) {
         store.flushAgentBuffer(sessionId);
-        void saveHistoryToDb(sessionId, store.getConsolidatedHistory(sessionId));
+        { const wb = getSessionWriteBuffer(); for (const n of store.getConsolidatedHistory(sessionId)) wb.add(sessionId, n); void wb.flush(sessionId); }
         return jsonrpcResponse(id ?? null, null, {
           code: -32000,
           message: err instanceof Error ? err.message : "Prompt failed",

@@ -26,8 +26,20 @@ import { isServerlessEnvironment } from "@/core/acp/api-based-providers";
 import { isClaudeCodeSdkConfigured } from "@/core/acp/claude-code-sdk-adapter";
 import { isOpencodeServerConfigured } from "@/core/acp/opencode-sdk-adapter";
 import { persistSessionToDb, saveHistoryToDb } from "@/core/acp/session-db-persister";
+import { SessionWriteBuffer } from "@/core/acp/session-write-buffer";
 
 export const dynamic = "force-dynamic";
+
+// ─── Session write buffer singleton (shared pattern with acp route) ─────
+let _agUiWriteBuffer: SessionWriteBuffer | null = null;
+function getAgUiWriteBuffer(): SessionWriteBuffer {
+  if (!_agUiWriteBuffer) {
+    _agUiWriteBuffer = new SessionWriteBuffer({
+      persistFn: saveHistoryToDb,
+    });
+  }
+  return _agUiWriteBuffer;
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -393,7 +405,7 @@ export async function POST(request: NextRequest) {
         store.removeNotificationInterceptor(sessionId!, interceptor);
 
         // Save history
-        await saveHistoryToDb(sessionId!, store.getConsolidatedHistory(sessionId!));
+        { const wb = getAgUiWriteBuffer(); for (const n of store.getConsolidatedHistory(sessionId!)) wb.add(sessionId!, n); await wb.flush(sessionId!); }
 
         try {
           controller.close();

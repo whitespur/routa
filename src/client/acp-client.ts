@@ -27,6 +27,8 @@ export interface AcpNewSessionResult {
   provider?: string;
   role?: string;
   routaAgentId?: string;
+  /** ACP process lifecycle status — "connecting" means the agent is still starting up */
+  acpStatus?: "connecting" | "ready" | "error";
 }
 
 export interface AcpPromptResult {

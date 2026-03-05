@@ -20,6 +20,8 @@ import type { WorkspaceAgentEvent } from "./agent-event-bridge";
 import type { NormalizedSessionUpdate } from "./provider-adapter/types";
 import { getRoutaSystem } from "../routa-system";
 
+export type AcpSessionStatus = "connecting" | "ready" | "error";
+
 export interface RoutaSessionRecord {
   sessionId: string;
   /** User-editable display name */
@@ -43,6 +45,10 @@ export interface RoutaSessionRecord {
   specialistId?: string;
   /** Pre-built system prompt header for the specialist (systemPrompt + roleReminder) */
   specialistSystemPrompt?: string;
+  /** ACP process lifecycle status: connecting → ready | error */
+  acpStatus?: AcpSessionStatus;
+  /** Error message when acpStatus is "error" */
+  acpError?: string;
 }
 
 type Controller = ReadableStreamDefaultController<Uint8Array>;
@@ -301,6 +307,30 @@ class HttpSessionStore {
       ...existing,
       modeId,
     });
+  }
+
+  /**
+   * Update the ACP process lifecycle status for a session.
+   * Sends an SSE notification so the client can react (e.g. show spinner → ready).
+   */
+  updateSessionAcpStatus(sessionId: string, status: AcpSessionStatus, error?: string) {
+    const existing = this.sessions.get(sessionId);
+    if (!existing) return;
+    this.sessions.set(sessionId, {
+      ...existing,
+      acpStatus: status,
+      acpError: error,
+    });
+
+    // Push a synthetic notification so the client knows the status changed
+    this.pushNotification({
+      sessionId,
+      update: {
+        sessionUpdate: "acp_status",
+        status,
+        error,
+      },
+    } as SessionUpdateNotification);
   }
 
   attachSse(sessionId: string, controller: Controller) {
