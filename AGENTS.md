@@ -17,7 +17,7 @@ Both backends implement **identical REST APIs** for seamless frontend compatibil
 
 - Use playwright tool (mcp) to test the web UI by youself if possible
 - Use playwright testing e2e
-- Test Tauri UI with `npm run tauri dev`, then use playwright to test the UI too.
+- Test Tauri UI with `npm run tauri dev`, then use playwright to test the UI (http://127.0.0.1:3210/) too.
 
 ## Pull Request
 
