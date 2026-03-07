@@ -40,3 +40,20 @@ export interface DockerPullResult {
   output?: string;
   error?: string;
 }
+
+/**
+ * Internal pooled container info for container reuse.
+ * Extends DockerContainerInfo with pool lifecycle fields.
+ */
+export interface PooledContainerInfo extends DockerContainerInfo {
+  /** Image name used for reuse matching */
+  poolKey: string;
+  /** Container status: active (serving sessions) or idle (awaiting reuse/destroy) */
+  status: "active" | "idle";
+  /** Session IDs currently using this container */
+  activeSessionIds: Set<string>;
+  /** Timestamp of last active session ending */
+  lastActiveAt: Date;
+  /** Idle timeout timer reference */
+  idleTimerId?: ReturnType<typeof setTimeout>;
+}

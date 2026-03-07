@@ -243,7 +243,8 @@ export class AcpProcessManager {
         authJson?: string,
     ): Promise<string> {
         const dockerManager = getDockerProcessManager();
-        const container = await dockerManager.startContainer({
+        // Use acquireContainer for container reuse support
+        const container = await dockerManager.acquireContainer({
             sessionId,
             image: image ?? DEFAULT_DOCKER_AGENT_IMAGE,
             workspacePath: cwd,
