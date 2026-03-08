@@ -34,6 +34,52 @@ interface IssueData {
   author: string;
 }
 
+// ─── Label Taxonomy ────────────────────────────────────────────────────────
+
+const LABEL_TAXONOMY = {
+  type: [
+    { name: "bug", color: "d73a4a", description: "Something isn't working" },
+    { name: "enhancement", color: "a2eeef", description: "New feature or request" },
+    { name: "documentation", color: "0075ca", description: "Improvements or additions to documentation" },
+    { name: "question", color: "d876e3", description: "Further information is requested" },
+    { name: "feature", color: "7057ff", description: "New feature request" },
+  ],
+  area: [
+    { name: "area:frontend", color: "fbca04", description: "Related to the frontend/UI" },
+    { name: "area:backend", color: "e4e669", description: "Related to the backend server" },
+    { name: "area:api", color: "bfd4f2", description: "Related to the API layer" },
+    { name: "area:database", color: "c5def5", description: "Related to database/storage" },
+    { name: "area:devops", color: "fef2c0", description: "Related to CI/CD, deployment, or infrastructure" },
+  ],
+  complexity: [
+    { name: "complexity:small", color: "0e8a16", description: "Small scope, straightforward change" },
+    { name: "complexity:medium", color: "e4a907", description: "Moderate scope, requires some design work" },
+    { name: "complexity:large", color: "b60205", description: "Large scope, significant effort required" },
+  ],
+};
+
+// ─── Ensure Labels Exist ────────────────────────────────────────────────────
+
+function ensureLabelsExist(): void {
+  const allLabels = [
+    ...LABEL_TAXONOMY.type,
+    ...LABEL_TAXONOMY.area,
+    ...LABEL_TAXONOMY.complexity,
+  ];
+
+  for (const label of allLabels) {
+    try {
+      // --force updates the label if it already exists, or creates it if not
+      execSync(
+        `gh label create "${label.name}" --color "${label.color}" --description "${label.description}" --force`,
+        { encoding: "utf-8", cwd: process.cwd(), stdio: "pipe" }
+      );
+    } catch {
+      // Non-fatal: log but continue if a label operation fails (e.g., auth or network issue)
+    }
+  }
+}
+
 // ─── Fetch Issue Data ──────────────────────────────────────────────────────
 
 function fetchIssue(issueNumber: number): IssueData | null {
@@ -73,6 +119,11 @@ async function analyzeIssue(issue: IssueData, dryRun: boolean): Promise<void> {
 
   const hasBody = issue.body.trim().length > 0;
 
+  // Build label taxonomy strings for prompt
+  const typeLabels = LABEL_TAXONOMY.type.map((l) => `\`${l.name}\``).join(", ");
+  const areaLabels = LABEL_TAXONOMY.area.map((l) => `\`${l.name}\``).join(", ");
+  const complexityLabels = LABEL_TAXONOMY.complexity.map((l) => `\`${l.name}\``).join(", ");
+
   const prompt = `Analyze GitHub issue #${issue.number} and provide a detailed analysis.
 
 ## Issue Title
@@ -103,7 +154,14 @@ ${issue.labels.length > 0 ? issue.labels.join(", ") : "(none)"}
    - 2-3 proposed approaches with trade-offs
    - Recommended approach
    - Effort estimate (Small/Medium/Large)
-6. ${dryRun ? "Suggest appropriate labels" : `Add appropriate labels using: gh issue edit ${issue.number} --add-label "enhancement" (or other relevant labels)`}
+6. Automatically apply labels based on your analysis using these categories:
+   - **Type** (pick ONE): ${typeLabels}
+   - **Area** (pick ONE or MORE that apply): ${areaLabels}
+   - **Complexity** (pick ONE): ${complexityLabels}
+   ${dryRun
+     ? "Output the labels you would apply and why, but do NOT run any gh commands."
+     : `Apply the labels with: gh issue edit ${issue.number} --add-label "bug,area:frontend,complexity:small" (replace with the labels you chose)
+   Use only labels from the taxonomy above. Do NOT invent new label names.`}
 
 Do NOT create a new issue - only analyze and update issue #${issue.number}.`;
 
@@ -228,6 +286,12 @@ async function main(): Promise<void> {
   console.log(`   Title: ${issue.title}`);
   console.log(`   Author: ${issue.author}`);
   console.log(`   Labels: ${issue.labels.length > 0 ? issue.labels.join(", ") : "(none)"}`);
+
+  // Ensure standard labels exist before Claude tries to apply them
+  if (!dryRun) {
+    console.log("\n🏷️  Ensuring label taxonomy exists...");
+    ensureLabelsExist();
+  }
 
   // Check if author is allowed for Copilot assignment
   const isAllowedAuthor = ALLOWED_AUTHORS.includes(issue.author);
