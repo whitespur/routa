@@ -27,7 +27,7 @@
 
 ## After generating or modifying code
 
-After generating or modifying code, agents must run the following checks automatically. All must pass before committing:
+After generating or modifying **source code** (not docs, configs, or workflows), agents must run the following checks automatically. All must pass before committing:
 
 1. **Type Check** — `npx tsc --noEmit` (or `cargo check` for Rust)
 2. **Lint** — `npm run lint` (or `cargo clippy`)
@@ -36,8 +36,15 @@ After generating or modifying code, agents must run the following checks automat
 5. If UI changes are involved, run a **Playwright MCP** smoke test.
 
 > If any step fails, fix and re-validate. Never skip.
+>
+> **Skip checks** for changes that only touch: `*.md`, `*.yml`, `*.yaml`, `.github/`, `docs/`, or other non-code files.
 
 ## Git Discipline
+
+### Commit Without Asking Permission
+
+- Always include a `Co-authored-by:` line in the commit message.
+- Ensure tests pass before pushing.
 
 ### Baby-Step Commits (Enforced)
 
