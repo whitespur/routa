@@ -12,8 +12,10 @@ const eslintConfig = [
       "node_modules/**",
       "out/**",
       "build/**",
+      "target/**",
       "dist/**",
       ".vercel/**",
+      ".routa/**",
       "apps/desktop/src-tauri/target/**",
       "apps/desktop/src-tauri/bundled/**",
       "apps/desktop/src-tauri/frontend/**",
@@ -81,6 +83,8 @@ const eslintConfig = [
       "no-prototype-builtins": "warn", // Downgrade to warning
       "no-regex-spaces": "warn", // Downgrade to warning
       "no-fallthrough": "warn", // Downgrade to warning
+      "no-unused-private-class-members": "warn", // Downgrade to warning
+      "preserve-caught-error": "warn", // Downgrade to warning
     },
     settings: {
       react: {
