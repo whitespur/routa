@@ -15,7 +15,7 @@
 
 ## Testing & Debugging
 
-- Use **Playwright MCP tool** to test the web UI directly.
+- Use **Playwright MCP tool** or CLI (`playwright-cli`) or Skills to test the web UI directly.
 - Use **Playwright e2e** tests for automated coverage.
 - Test Tauri UI: `npm run tauri dev`, then use Playwright against `http://127.0.0.1:3210/`.
 - When changes span many files, do a full manual walkthrough in the browser:
@@ -82,7 +82,7 @@ When multiple agents collaborate, follow these handoff disciplines:
 
 ## Pull Request
 
-- PR body must include **Playwright screenshots**.
+- PR body must include **Playwright screenshots** or recordings.
 - Attach e2e test screenshots or recordings when available.
 
 ## Issue Management — Feedback-Driven Loop
