@@ -3643,6 +3643,117 @@ paths:
                     items:
                       type: string
 
+  # ── Workflows ──
+  /api/workflows:
+    get:
+      operationId: listWorkflows
+      summary: List all workflow YAML definitions from resources/flows/
+      responses:
+        "200":
+          description: Workflow list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        version:
+                          type: string
+                        trigger:
+                          type: object
+                        steps:
+                          type: array
+                        yamlContent:
+                          type: string
+    post:
+      operationId: createWorkflow
+      summary: Create a new workflow YAML file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, yamlContent]
+              properties:
+                id:
+                  type: string
+                yamlContent:
+                  type: string
+      responses:
+        "201":
+          description: Workflow created
+        "400":
+          description: Invalid input
+        "409":
+          description: Workflow already exists
+
+  /api/workflows/{id}:
+    get:
+      operationId: getWorkflow
+      summary: Get a specific workflow by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow detail
+        "404":
+          description: Workflow not found
+    put:
+      operationId: updateWorkflow
+      summary: Update a workflow YAML file
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [yamlContent]
+              properties:
+                yamlContent:
+                  type: string
+      responses:
+        "200":
+          description: Workflow updated
+        "400":
+          description: Invalid input
+        "404":
+          description: Workflow not found
+    delete:
+      operationId: deleteWorkflow
+      summary: Delete a workflow YAML file
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow deleted
+        "404":
+          description: Workflow not found
+
   # ── Debug (Rust desktop only) ──
   /api/debug/path:
     get:

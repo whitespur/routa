@@ -29,6 +29,9 @@ async-stream = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# YAML parsing (workflow CRUD)
+serde_yaml = "0.9"
+
 # Utilities used in API handlers
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }

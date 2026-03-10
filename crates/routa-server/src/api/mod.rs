@@ -35,6 +35,7 @@ pub mod tasks;
 pub mod test_mcp;
 pub mod traces;
 pub mod webhooks;
+pub mod workflows;
 pub mod workspaces;
 pub mod worktrees;
 
@@ -83,5 +84,6 @@ pub fn api_router() -> Router<AppState> {
         .nest("/api/memory", memory::router())
         .nest("/api/debug", debug::router())
         .nest("/api/polling", polling::router())
+        .nest("/api/workflows", workflows::router())
         .nest("/api", worktrees::router())
 }
