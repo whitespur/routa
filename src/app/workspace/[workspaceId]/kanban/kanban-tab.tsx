@@ -133,6 +133,17 @@ User request: ${agentInput}`;
     setLocalTasks(tasks);
   }, [tasks]);
 
+  // Sync task's assignedProvider to ACP state when activeTaskId changes
+  useEffect(() => {
+    if (!activeTaskId) return;
+    const task = localTasks.find((t) => t.id === activeTaskId);
+    if (task?.assignedProvider && acp?.setProvider) {
+      acp.setProvider(task.assignedProvider);
+    }
+    // Only trigger when activeTaskId changes, not when acp changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTaskId]);
+
   const board = useMemo(
     () => boards.find((item) => item.id === selectedBoardId) ?? null,
     [boards, selectedBoardId],
@@ -674,7 +685,7 @@ User request: ${agentInput}`;
               })()}
               {/* Right: Session (if activeSessionId exists) */}
               {activeSessionId && acp ? (() => {
-                // Build repoSelection from active task's codebaseIds
+                // Build repoSelection and agentRole from active task
                 const activeTask = activeTaskId ? localTasks.find((t) => t.id === activeTaskId) : null;
                 const taskCodebaseIds = activeTask?.codebaseIds && activeTask.codebaseIds.length > 0
                   ? activeTask.codebaseIds
@@ -689,6 +700,7 @@ User request: ${agentInput}`;
                       name: primaryCodebase.label ?? primaryCodebase.repoPath.split("/").pop() ?? ""
                     }
                   : null;
+                const taskAgentRole = activeTask?.assignedRole ?? undefined;
 
                 return (
                   <div className={`${activeTaskId ? "w-2/3" : "w-full"} h-full overflow-hidden`}>
@@ -704,6 +716,7 @@ User request: ${agentInput}`;
                       onRepoChange={() => {}}
                       codebases={codebases}
                       activeWorkspaceId={workspaceId}
+                      agentRole={taskAgentRole}
                     />
                   </div>
                 );
