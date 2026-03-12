@@ -11,7 +11,7 @@
  * Ported from Intent 0.2.11's ProviderRegistry implementation.
  */
 
-import { AcpAgentPreset, ACP_AGENT_PRESETS, getPresetById } from "./acp-presets";
+import { ACP_AGENT_PRESETS, getPresetById } from "./acp-presets";
 import { AgentRole, ModelTier } from "../models/agent";
 
 // ─── Model Tier Configuration ─────────────────────────────────────────────

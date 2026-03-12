@@ -17,7 +17,6 @@ import {
   type RegistryAgent,
   fetchRegistry,
   getRegistryAgent,
-  detectPlatformTarget,
 } from "./acp-registry";
 import { type DistributionType, buildAgentCommand } from "./acp-installer";
 import { AgentRole, ModelTier } from "../models/agent";

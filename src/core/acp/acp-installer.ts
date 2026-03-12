@@ -14,8 +14,6 @@ import * as path from "path";
 import * as os from "os";
 import {
   type RegistryAgent,
-  type PlatformTarget,
-  type BinaryPlatformConfig,
   fetchRegistry,
   getRegistryAgent,
   detectPlatformTarget,
@@ -527,4 +525,3 @@ export async function uninstallBinaryAgent(
     return false;
   }
 }
-

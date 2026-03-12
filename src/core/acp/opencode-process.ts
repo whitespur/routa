@@ -14,7 +14,7 @@
  * See acp-presets.ts for available presets.
  */
 
-import {type AcpAgentPreset, getPresetById, getPresetByIdWithRegistry, resolveCommand,} from "./acp-presets";
+import {type AcpAgentPreset, getPresetByIdWithRegistry, resolveCommand,} from "./acp-presets";
 import {AcpProcess} from "@/core/acp/acp-process";
 import {AcpProcessManager} from "@/core/acp/acp-process-manager";
 
@@ -135,11 +135,6 @@ export interface ManagedProcess {
 }
 
 // ─── Backward-compatible alias ─────────────────────────────────────────
-
-/**
- * @deprecated Use `AcpProcessManager` (via `getAcpProcessManager()`) instead.
- */
-const OpenCodeProcessManager = AcpProcessManager;
 
 // Singleton
 let singleton: AcpProcessManager | undefined;
