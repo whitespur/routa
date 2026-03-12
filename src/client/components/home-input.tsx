@@ -78,7 +78,7 @@ export function HomeInput({
     if (propWorkspaceId && propWorkspaceId !== selectedWorkspaceId) {
       setSelectedWorkspaceId(propWorkspaceId);
     }
-  }, [propWorkspaceId]);
+  }, [propWorkspaceId, selectedWorkspaceId]);
 
   // Auto-select first workspace if none selected
   useEffect(() => {
@@ -122,7 +122,7 @@ export function HomeInput({
     if (!acp.connected && !acp.loading) {
       acp.connect();
     }
-  }, [acp.connected, acp.loading, acp.connect]);
+  }, [acp]);
 
   // Load repo skills when selection changes
   useEffect(() => {
@@ -131,6 +131,8 @@ export function HomeInput({
     } else {
       skillsHook.clearRepoSkills();
     }
+    // Only depend on the path, not the entire skillsHook object
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoSelection?.path]);
 
   // Auto-select default codebase
@@ -206,7 +208,7 @@ export function HomeInput({
         setIsSubmitting(false);
       }
     },
-    [acp, repoSelection, selectedRole, selectedWorkspaceId, selectedSpecialistId, router, onSessionCreated],
+    [acp, repoSelection, selectedRole, selectedWorkspaceId, selectedSpecialistId, router, onSessionCreated, specialists],
   );
 
   const activeWorkspace = workspacesHook.workspaces.find((w) => w.id === selectedWorkspaceId);
@@ -529,4 +531,3 @@ export function HomeInput({
     </div>
   );
 }
-

@@ -94,7 +94,15 @@ export function useCodebases(workspaceId: string): {
   }, [workspaceId]);
 
   useEffect(() => {
-    fetchCodebases();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        void fetchCodebases();
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [fetchCodebases]);
 
   return { codebases, fetchCodebases };
