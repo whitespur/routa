@@ -75,17 +75,48 @@ impl CodebaseStore {
         id: &str,
         branch: Option<&str>,
         label: Option<&str>,
+        repo_path: Option<&str>,
     ) -> Result<(), ServerError> {
         let id = id.to_string();
         let branch = branch.map(|s| s.to_string());
         let label = label.map(|s| s.to_string());
+        let repo_path = repo_path.map(|s| s.to_string());
         let now = Utc::now().timestamp_millis();
         self.db
             .with_conn_async(move |conn| {
-                conn.execute(
-                    "UPDATE codebases SET branch = ?1, label = ?2, updated_at = ?3 WHERE id = ?4",
-                    rusqlite::params![branch, label, now, id],
-                )?;
+                // Build dynamic update query based on which fields are provided
+                let mut updates = Vec::new();
+                let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+                if let Some(ref b) = branch {
+                    updates.push("branch = ?");
+                    params.push(Box::new(b.clone()));
+                }
+                if let Some(ref l) = label {
+                    updates.push("label = ?");
+                    params.push(Box::new(l.clone()));
+                }
+                if let Some(ref r) = repo_path {
+                    updates.push("repo_path = ?");
+                    params.push(Box::new(r.clone()));
+                }
+                updates.push("updated_at = ?");
+                params.push(Box::new(now));
+
+                if updates.len() == 1 {
+                    // Only updated_at, nothing to update
+                    return Ok(());
+                }
+
+                let sql = format!(
+                    "UPDATE codebases SET {} WHERE id = ?",
+                    updates.join(", ")
+                );
+                params.push(Box::new(id.clone()));
+
+                let params_refs: Vec<&dyn rusqlite::ToSql> =
+                    params.iter().map(|p| p.as_ref()).collect();
+                conn.execute(&sql, params_refs.as_slice())?;
                 Ok(())
             })
             .await

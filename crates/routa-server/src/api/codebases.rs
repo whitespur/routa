@@ -78,6 +78,7 @@ async fn add_codebase(
 struct UpdateCodebaseRequest {
     branch: Option<String>,
     label: Option<String>,
+    repo_path: Option<String>,
 }
 
 async fn update_codebase(
@@ -94,7 +95,12 @@ async fn update_codebase(
 
     state
         .codebase_store
-        .update(&id, body.branch.as_deref(), body.label.as_deref())
+        .update(
+            &id,
+            body.branch.as_deref(),
+            body.label.as_deref(),
+            body.repo_path.as_deref(),
+        )
         .await?;
 
     let codebase = state

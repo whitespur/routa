@@ -17,11 +17,11 @@ export async function PATCH(
 ) {
   const { codebaseId } = await params;
   const body = await request.json();
-  const { branch, label } = body;
+  const { branch, label, repoPath } = body;
 
   const system = getRoutaSystem();
 
-  await system.codebaseStore.update(codebaseId, { branch, label });
+  await system.codebaseStore.update(codebaseId, { branch, label, repoPath });
   const codebase = await system.codebaseStore.get(codebaseId);
 
   return NextResponse.json({ codebase });

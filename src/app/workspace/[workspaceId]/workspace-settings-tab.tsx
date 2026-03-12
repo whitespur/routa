@@ -36,6 +36,11 @@ export function WorkspaceSettingsTab({
 }: WorkspaceSettingsTabProps) {
   const [repoPickerValue, setRepoPickerValue] = useState<RepoSelection | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
+  const [editingCodebase, setEditingCodebase] = useState<CodebaseInfo | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [editRepoPath, setEditRepoPath] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const handlePickerChange = async (selection: RepoSelection | null) => {
     if (!selection) return;
@@ -68,6 +73,39 @@ export function WorkspaceSettingsTab({
     }
   };
 
+  const handleEdit = (cb: CodebaseInfo) => {
+    setEditingCodebase(cb);
+    setEditLabel(cb.label ?? "");
+    setEditRepoPath(cb.repoPath);
+    setEditError(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingCodebase) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/codebases/${encodeURIComponent(editingCodebase.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: editLabel, repoPath: editRepoPath }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to update repository");
+      await fetchCodebases();
+      setEditingCodebase(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Failed to update repository");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCodebase(null);
+    setEditError(null);
+  };
+
   return (
     <div className="space-y-6 max-w-2xl">
       {/* ── Linked Repositories ─────────────────────────────────── */}
@@ -94,8 +132,15 @@ export function WorkspaceSettingsTab({
                   <span className="text-[10px] text-amber-500 font-medium">default</span>
                 )}
                 <button
+                  onClick={() => handleEdit(cb)}
+                  className="ml-0.5 w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                  title={`Edit ${cb.label ?? cb.repoPath}`}
+                >
+                  ✎
+                </button>
+                <button
                   onClick={() => void handleRemove(cb.id)}
-                  className="ml-0.5 w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+                  className="w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
                   title={`Remove ${cb.label ?? cb.repoPath}`}
                 >
                   ×
@@ -167,6 +212,60 @@ export function WorkspaceSettingsTab({
           </button>
         </div>
       </section>
+
+      {/* ── Edit Codebase Modal ───────────────────────────────────── */}
+      {editingCodebase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-[#1c1f2e] dark:bg-[#12141c]">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+              Edit Repository
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  Label
+                </label>
+                <input
+                  value={editLabel}
+                  onChange={(e) => setEditLabel(e.target.value)}
+                  placeholder="e.g. routa-js"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-amber-400 dark:border-gray-700 dark:bg-[#0d1018] dark:text-gray-200"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  Repository Path
+                </label>
+                <input
+                  value={editRepoPath}
+                  onChange={(e) => setEditRepoPath(e.target.value)}
+                  placeholder="/path/to/repo"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-mono text-gray-700 outline-none focus:border-amber-400 dark:border-gray-700 dark:bg-[#0d1018] dark:text-gray-200"
+                />
+              </div>
+              {editError && (
+                <div className="text-xs text-rose-600 dark:text-rose-400">{editError}</div>
+              )}
+            </div>
+            <div className="mt-5 flex gap-2 justify-end">
+              <button
+                onClick={handleCancelEdit}
+                disabled={editSaving}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-[#191c28]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSaveEdit()}
+                disabled={editSaving}
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-60"
+              >
+                {editSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
