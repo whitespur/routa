@@ -8,8 +8,9 @@ use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use serde::Deserialize;
 use std::process::Command;
 
+use crate::application::tasks::{CreateTaskCommand, TaskApplicationService, UpdateTaskCommand};
 use crate::error::ServerError;
-use crate::models::task::{Task, TaskPriority, TaskStatus};
+use crate::models::task::{Task, TaskStatus};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -103,44 +104,12 @@ async fn create_task(
     State(state): State<AppState>,
     Json(body): Json<CreateTaskRequest>,
 ) -> Result<(axum::http::StatusCode, Json<serde_json::Value>), ServerError> {
-    let workspace_id = body.workspace_id.unwrap_or_else(|| "default".to_string());
-    let default_board = state
-        .kanban_store
-        .ensure_default_board(&workspace_id)
-        .await?;
-    let codebase = resolve_codebase(&state, &workspace_id, body.repo_path.as_deref()).await?;
+    let service = TaskApplicationService::new(state.clone());
+    let plan = service.create_task(create_task_command(body)).await?;
+    let mut task = plan.task;
+    let codebase = resolve_codebase(&state, &task.workspace_id, plan.repo_path.as_deref()).await?;
 
-    let mut task = Task::new(
-        uuid::Uuid::new_v4().to_string(),
-        body.title,
-        body.objective,
-        workspace_id,
-        body.session_id,
-        body.scope,
-        body.acceptance_criteria,
-        body.verification_commands,
-        body.dependencies,
-        body.parallel_group,
-    );
-    task.board_id = body.board_id.or_else(|| Some(default_board.id.clone()));
-    task.column_id = body.column_id.or_else(|| Some("backlog".to_string()));
-    task.status = column_id_to_task_status(task.column_id.as_deref());
-    task.position = body.position.unwrap_or(0);
-    task.priority = match body.priority {
-        Some(value) => Some(
-            TaskPriority::from_str(&value)
-                .ok_or_else(|| ServerError::BadRequest(format!("Invalid priority: {}", value)))?,
-        ),
-        None => None,
-    };
-    task.labels = sanitize_labels(body.labels.unwrap_or_default());
-    task.assignee = body.assignee;
-    task.assigned_provider = body.assigned_provider;
-    task.assigned_role = body.assigned_role;
-    task.assigned_specialist_id = body.assigned_specialist_id;
-    task.assigned_specialist_name = body.assigned_specialist_name;
-
-    if body.create_github_issue.unwrap_or(false) {
+    if plan.create_github_issue {
         match resolve_github_repo(codebase.as_ref().map(|item| item.repo_path.as_str())) {
             Some(repo) => match create_github_issue(
                 &repo,
@@ -214,135 +183,78 @@ struct UpdateTaskRequest {
     repo_path: Option<String>,
 }
 
+fn create_task_command(body: CreateTaskRequest) -> CreateTaskCommand {
+    CreateTaskCommand {
+        title: body.title,
+        objective: body.objective,
+        workspace_id: body.workspace_id,
+        session_id: body.session_id,
+        scope: body.scope,
+        acceptance_criteria: body.acceptance_criteria,
+        verification_commands: body.verification_commands,
+        dependencies: body.dependencies,
+        parallel_group: body.parallel_group,
+        board_id: body.board_id,
+        column_id: body.column_id,
+        position: body.position,
+        priority: body.priority,
+        labels: body.labels,
+        assignee: body.assignee,
+        assigned_provider: body.assigned_provider,
+        assigned_role: body.assigned_role,
+        assigned_specialist_id: body.assigned_specialist_id,
+        assigned_specialist_name: body.assigned_specialist_name,
+        create_github_issue: body.create_github_issue,
+        repo_path: body.repo_path,
+    }
+}
+
+fn update_task_command(body: UpdateTaskRequest) -> UpdateTaskCommand {
+    UpdateTaskCommand {
+        title: body.title,
+        objective: body.objective,
+        scope: body.scope,
+        acceptance_criteria: body.acceptance_criteria,
+        verification_commands: body.verification_commands,
+        assigned_to: body.assigned_to,
+        status: body.status,
+        board_id: body.board_id,
+        column_id: body.column_id,
+        position: body.position,
+        priority: body.priority,
+        labels: body.labels,
+        assignee: body.assignee,
+        assigned_provider: body.assigned_provider,
+        assigned_role: body.assigned_role,
+        assigned_specialist_id: body.assigned_specialist_id,
+        assigned_specialist_name: body.assigned_specialist_name,
+        trigger_session_id: body.trigger_session_id,
+        github_id: body.github_id,
+        github_number: body.github_number,
+        github_url: body.github_url,
+        github_repo: body.github_repo,
+        github_state: body.github_state,
+        last_sync_error: body.last_sync_error,
+        dependencies: body.dependencies,
+        parallel_group: body.parallel_group,
+        completion_summary: body.completion_summary,
+        verification_report: body.verification_report,
+        sync_to_github: body.sync_to_github,
+        retry_trigger: body.retry_trigger,
+        repo_path: body.repo_path,
+    }
+}
+
 async fn update_task(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(body): Json<UpdateTaskRequest>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let Some(mut task) = state.task_store.get(&id).await? else {
-        return Err(ServerError::NotFound(format!("Task {} not found", id)));
-    };
-    let existing_column_id = task.column_id.clone();
-    let has_status_update = body.status.is_some();
-    let has_column_update = body.column_id.is_some();
-    let has_assigned_provider_update = body.assigned_provider.is_some();
-    let has_assigned_role_update = body.assigned_role.is_some();
-    let has_assigned_specialist_update = body.assigned_specialist_id.is_some();
-    let retry_trigger = body.retry_trigger.unwrap_or(false);
-    let repo_path = body.repo_path.clone();
+    let service = TaskApplicationService::new(state.clone());
+    let plan = service.update_task(&id, update_task_command(body)).await?;
+    let mut task = plan.task;
 
-    if let Some(value) = body.title {
-        task.title = value;
-    }
-    if let Some(value) = body.objective {
-        task.objective = value;
-    }
-    if let Some(value) = body.scope {
-        task.scope = Some(value);
-    }
-    if let Some(value) = body.acceptance_criteria {
-        task.acceptance_criteria = Some(value);
-    }
-    if let Some(value) = body.verification_commands {
-        task.verification_commands = Some(value);
-    }
-    if let Some(value) = body.assigned_to {
-        task.assigned_to = Some(value);
-    }
-    if let Some(value) = body.status {
-        task.status = TaskStatus::from_str(&value)
-            .ok_or_else(|| ServerError::BadRequest(format!("Invalid status: {}", value)))?;
-    }
-    if body.board_id.is_some() {
-        task.board_id = body.board_id;
-    }
-    if body.column_id.is_some() {
-        task.column_id = body.column_id;
-    }
-    if let Some(value) = body.position {
-        task.position = value;
-    }
-    if let Some(value) = body.priority {
-        task.priority = Some(
-            TaskPriority::from_str(&value)
-                .ok_or_else(|| ServerError::BadRequest(format!("Invalid priority: {}", value)))?,
-        );
-    }
-    if let Some(value) = body.labels {
-        task.labels = sanitize_labels(value);
-    }
-    if body.assignee.is_some() {
-        task.assignee = body.assignee;
-    }
-    if body.assigned_provider.is_some() {
-        task.assigned_provider = body.assigned_provider;
-    }
-    if body.assigned_role.is_some() {
-        task.assigned_role = body.assigned_role;
-    }
-    if body.assigned_specialist_id.is_some() {
-        task.assigned_specialist_id = body.assigned_specialist_id;
-    }
-    if body.assigned_specialist_name.is_some() {
-        task.assigned_specialist_name = body.assigned_specialist_name;
-    }
-    if body.trigger_session_id.is_some() {
-        task.trigger_session_id = body.trigger_session_id;
-    }
-    if body.github_id.is_some() {
-        task.github_id = body.github_id;
-    }
-    if body.github_number.is_some() {
-        task.github_number = body.github_number;
-    }
-    if body.github_url.is_some() {
-        task.github_url = body.github_url;
-    }
-    if body.github_repo.is_some() {
-        task.github_repo = body.github_repo;
-    }
-    if body.github_state.is_some() {
-        task.github_state = body.github_state;
-    }
-    if body.last_sync_error.is_some() {
-        task.last_sync_error = body.last_sync_error;
-    }
-    if let Some(value) = body.dependencies {
-        task.dependencies = value;
-    }
-    if body.parallel_group.is_some() {
-        task.parallel_group = body.parallel_group;
-    }
-    if body.completion_summary.is_some() {
-        task.completion_summary = body.completion_summary;
-    }
-    if body.verification_report.is_some() {
-        task.verification_report = body.verification_report;
-    }
-
-    if retry_trigger {
-        task.trigger_session_id = None;
-        task.last_sync_error = None;
-    }
-
-    if has_column_update && has_status_update {
-        let expected_status = column_id_to_task_status(task.column_id.as_deref());
-        let expected_column_id = task_status_to_column_id(&task.status);
-        if expected_status != task.status || task.column_id.as_deref() != Some(expected_column_id) {
-            return Err(ServerError::BadRequest(
-                "columnId and status must describe the same workflow state".to_string(),
-            ));
-        }
-    }
-
-    if has_column_update && !has_status_update {
-        task.status = column_id_to_task_status(task.column_id.as_deref());
-    }
-    if has_status_update && !has_column_update {
-        task.column_id = Some(task_status_to_column_id(&task.status).to_string());
-    }
-
-    if body.sync_to_github != Some(false) {
+    if plan.should_sync_github {
         if let (Some(repo), Some(issue_number)) = (task.github_repo.clone(), task.github_number) {
             match update_github_issue(
                 &repo,
@@ -375,19 +287,9 @@ async fn update_task(
         }
     }
 
-    let entering_dev =
-        task.column_id.as_deref() == Some("dev") && existing_column_id.as_deref() != Some("dev");
-    let assigned_while_in_dev = task.column_id.as_deref() == Some("dev")
-        && task.trigger_session_id.is_none()
-        && (has_assigned_provider_update
-            || has_assigned_specialist_update
-            || has_assigned_role_update);
-    let retrying_trigger = retry_trigger;
-
-    if (entering_dev || assigned_while_in_dev || retrying_trigger)
-        && task.trigger_session_id.is_none()
-    {
-        let codebase = resolve_codebase(&state, &task.workspace_id, repo_path.as_deref()).await?;
+    if plan.should_trigger_agent {
+        let codebase =
+            resolve_codebase(&state, &task.workspace_id, plan.repo_path.as_deref()).await?;
         let trigger_result = trigger_assigned_task_agent(
             &state,
             &task,
@@ -406,8 +308,6 @@ async fn update_task(
             }
         }
     }
-
-    task.updated_at = chrono::Utc::now();
 
     state.task_store.save(&task).await?;
     Ok(Json(serde_json::json!({ "task": task })))
@@ -467,37 +367,6 @@ struct GitHubIssueRef {
     url: String,
     state: String,
     repo: String,
-}
-
-fn sanitize_labels(labels: Vec<String>) -> Vec<String> {
-    let mut sanitized = Vec::new();
-    for label in labels {
-        let trimmed = label.trim();
-        if !trimmed.is_empty() && !sanitized.iter().any(|item| item == trimmed) {
-            sanitized.push(trimmed.to_string());
-        }
-    }
-    sanitized
-}
-
-fn column_id_to_task_status(column_id: Option<&str>) -> TaskStatus {
-    match column_id.unwrap_or("backlog").to_ascii_lowercase().as_str() {
-        "dev" => TaskStatus::InProgress,
-        "review" => TaskStatus::ReviewRequired,
-        "blocked" => TaskStatus::Blocked,
-        "done" => TaskStatus::Completed,
-        _ => TaskStatus::Pending,
-    }
-}
-
-fn task_status_to_column_id(status: &TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::InProgress => "dev",
-        TaskStatus::ReviewRequired => "review",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::Completed => "done",
-        _ => "backlog",
-    }
 }
 
 async fn resolve_codebase(
