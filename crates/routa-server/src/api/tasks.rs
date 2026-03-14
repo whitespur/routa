@@ -292,8 +292,13 @@ async fn update_task(
     }
 
     if plan.should_trigger_agent {
-        let codebase =
-            resolve_codebase(&state, &task.workspace_id, plan.repo_path.as_deref()).await?;
+        let codebase = if plan.repo_path.is_some() {
+            resolve_codebase(&state, &task.workspace_id, plan.repo_path.as_deref()).await?
+        } else if let Some(first_id) = task.codebase_ids.first() {
+            state.codebase_store.get(first_id).await.ok().flatten()
+        } else {
+            resolve_codebase(&state, &task.workspace_id, None).await?
+        };
         let trigger_result = trigger_assigned_task_agent(
             &state,
             &task,
