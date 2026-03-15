@@ -274,6 +274,15 @@ describe("KanbanTab session terminal hint", () => {
     await waitFor(() => {
       expect(onAgentPrompt).toHaveBeenCalled();
     });
+    expect(onAgentPrompt).toHaveBeenCalledWith(
+      expect.stringContaining("You are the KanbanTask Agent"),
+      expect.objectContaining({
+        provider: "claude",
+        role: "CRAFTER",
+        toolMode: "full",
+        allowedNativeTools: [],
+      }),
+    );
 
     const hint = await screen.findByTestId("kanban-read-only-terminal-hint");
     expect(hint.textContent).toContain("Browser terminal output is read-only right now.");

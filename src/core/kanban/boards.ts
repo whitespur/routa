@@ -9,9 +9,11 @@ import {
 import type { RoutaSystem } from "../routa-system";
 
 const RECOMMENDED_AUTOMATION_BY_STAGE: Partial<Record<KanbanColumnStage, KanbanColumnAutomation>> = {
+  // Kanban lanes rely on custom specialist prompts. Avoid ROUTA here because
+  // coordinator prompt injection overrides the lane specialist on first prompt.
   backlog: {
     enabled: true,
-    role: "DEVELOPER",
+    role: "CRAFTER",
     specialistId: "kanban-backlog-refiner",
     specialistName: "Backlog Refiner",
     transitionType: "entry",
@@ -19,7 +21,7 @@ const RECOMMENDED_AUTOMATION_BY_STAGE: Partial<Record<KanbanColumnStage, KanbanC
   },
   todo: {
     enabled: true,
-    role: "ROUTA",
+    role: "CRAFTER",
     specialistId: "kanban-todo-orchestrator",
     specialistName: "Todo Orchestrator",
     transitionType: "entry",
@@ -27,9 +29,9 @@ const RECOMMENDED_AUTOMATION_BY_STAGE: Partial<Record<KanbanColumnStage, KanbanC
   },
   dev: {
     enabled: true,
-    role: "DEVELOPER",
+    role: "CRAFTER",
     specialistId: "kanban-dev-executor",
-    specialistName: "Dev Executor",
+    specialistName: "Dev Crafter",
     transitionType: "entry",
     autoAdvanceOnSuccess: false,
   },
@@ -43,7 +45,7 @@ const RECOMMENDED_AUTOMATION_BY_STAGE: Partial<Record<KanbanColumnStage, KanbanC
   },
   blocked: {
     enabled: true,
-    role: "ROUTA",
+    role: "CRAFTER",
     specialistId: "kanban-blocked-resolver",
     specialistName: "Blocked Resolver",
     transitionType: "entry",

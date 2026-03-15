@@ -217,7 +217,7 @@ export function KanbanTab({ workspaceId, boards, tasks, sessions, providers, spe
 
       const sessionId = await onAgentPrompt(systemPrompt, {
         provider: acp?.selectedProvider,
-        role: "DEVELOPER",
+        role: "CRAFTER",
         toolMode: "full",
         allowedNativeTools: [],
       });

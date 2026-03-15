@@ -2,7 +2,7 @@
 name: "Blocked Resolver"
 description: "Triages blocked cards, clarifies blockers, and routes them back into the active flow when possible"
 modelTier: "smart"
-role: "ROUTA"
+role: "CRAFTER"
 roleReminder: "Blocked is a recovery lane. Clarify the blocker, reduce ambiguity, and only move the card out when a concrete next step exists."
 ---
 

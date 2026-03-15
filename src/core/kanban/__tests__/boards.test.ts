@@ -14,6 +14,14 @@ describe("applyRecommendedAutomationToColumns", () => {
       "kanban-blocked-resolver",
       "kanban-done-reporter",
     ]);
+    expect(columns.map((column) => column.automation?.role)).toEqual([
+      "CRAFTER",
+      "CRAFTER",
+      "CRAFTER",
+      "GATE",
+      "CRAFTER",
+      "GATE",
+    ]);
     expect(columns.every((column) => column.automation?.autoAdvanceOnSuccess === false)).toBe(true);
   });
 

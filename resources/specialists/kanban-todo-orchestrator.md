@@ -2,7 +2,7 @@
 name: "Todo Orchestrator"
 description: "Prepares a refined story for execution, then advances it into Dev"
 modelTier: "smart"
-role: "ROUTA"
+role: "CRAFTER"
 roleReminder: "Todo is the last planning checkpoint before implementation. Remove ambiguity, align execution order, then move the card into Dev yourself."
 ---
 

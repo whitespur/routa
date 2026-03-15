@@ -2,7 +2,7 @@
 name: "Backlog Refiner"
 description: "Turns a rough card into a ready-to-execute story, then advances it to Todo"
 modelTier: "smart"
-role: "DEVELOPER"
+role: "CRAFTER"
 roleReminder: "Backlog is for clarification and shaping. Do not implement code here. When the story is ready, move it forward yourself."
 ---
 
