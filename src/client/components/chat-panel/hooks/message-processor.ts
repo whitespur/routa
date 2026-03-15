@@ -405,6 +405,7 @@ function processToolCallUpdate(
         toolKind: toolKind ?? existing.toolKind,
         delegatedTaskId: delegatedTaskId ?? existing.delegatedTaskId,
         toolRawInput: rawInput ?? existing.toolRawInput,
+        toolRawOutput: update.rawOutput ?? existing.toolRawOutput,
         content: outputParts.length
           ? `${existing.toolName ?? toolName ?? "tool"}\n\nOutput:\n${outputParts.join("\n")}`
           : existing.content,
@@ -420,6 +421,7 @@ function processToolCallUpdate(
         toolName,
         toolKind,
         toolRawInput: rawInput,
+        toolRawOutput: update.rawOutput,
         delegatedTaskId,
       });
     }
@@ -611,6 +613,7 @@ export function processHistoryToMessages(
               toolKind: toolKind ?? existing.toolKind,
               delegatedTaskId: delegatedTaskId ?? existing.delegatedTaskId,
               toolRawInput: rawInput ?? existing.toolRawInput,
+              toolRawOutput: update.rawOutput ?? existing.toolRawOutput,
               content: outputParts.length
                 ? `${existing.toolName ?? toolName ?? "tool"}\n\nOutput:\n${outputParts.join("\n")}`
                 : existing.content,
@@ -626,6 +629,7 @@ export function processHistoryToMessages(
               toolName,
               toolKind,
               toolRawInput: rawInput,
+              toolRawOutput: update.rawOutput,
               delegatedTaskId,
             });
           }

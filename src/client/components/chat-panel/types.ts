@@ -27,6 +27,8 @@ export interface ChatMessage {
   toolKind?: string;
   /** Raw input parameters for tool calls */
   toolRawInput?: Record<string, unknown>;
+  /** Raw output payload for tool calls before string formatting */
+  toolRawOutput?: unknown;
   /** Task ID for delegated tasks (delegate_task_to_agent) */
   delegatedTaskId?: string;
   /** Completion summary when a delegated task completes */

@@ -1,9 +1,9 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {TerminalBubble} from "@/client/components/terminal/terminal-bubble";
-import {ChatMessage, PlanEntry} from "@/client/components/chat-panel";
+import {ChatMessage, PlanEntry} from "@/client/components/chat-panel/types";
 import {MarkdownViewer} from "@/client/components/markdown/markdown-viewer";
-import {CodeViewer} from "@/client/components/codemirror/code-viewer";
 import {TaskProgressBar, TaskInfo} from "@/client/components/task-progress-bar";
+import {summarizeToolOutput, ToolInputTable, ToolOutputView} from "@/client/components/tool-call-content";
 
 interface AskUserQuestionOption {
     label: string;
@@ -74,6 +74,7 @@ export function MessageBubble({
                     toolStatus={message.toolStatus}
                     toolKind={message.toolKind}
                     rawInput={message.toolRawInput}
+                    rawOutput={message.toolRawOutput}
                 />
             );
         case "terminal":
@@ -421,10 +422,16 @@ function extractOutputFromContent(content: string, toolName?: string): string {
     return content;
 }
 
+function getStructuredToolOutput(rawOutput: unknown, content: string, toolName?: string): unknown {
+    if (rawOutput != null) return rawOutput;
+    const extracted = extractOutputFromContent(content, toolName).trim();
+    return extracted || null;
+}
+
 function ToolBubble({
-                        content, toolName, toolStatus, toolKind, rawInput,
+                        content, toolName, toolStatus, toolKind, rawInput, rawOutput,
                     }: {
-    content: string; toolName?: string; toolStatus?: string; toolKind?: string; rawInput?: Record<string, unknown>;
+    content: string; toolName?: string; toolStatus?: string; toolKind?: string; rawInput?: Record<string, unknown>; rawOutput?: unknown;
 }) {
     const [expanded, setExpanded] = useState(false);
     const statusColor =
@@ -442,8 +449,9 @@ function ToolBubble({
     const styling = getToolStyling(effectiveKind);
     const icon = getToolIcon(effectiveKind, displayName);
     const hasInput = rawInput && Object.keys(rawInput).length > 0;
-    const outputText = extractOutputFromContent(content, toolName);
-    const hasOutput = !!outputText;
+    const structuredOutput = getStructuredToolOutput(rawOutput, content, toolName);
+    const outputSummary = summarizeToolOutput(structuredOutput);
+    const hasOutput = structuredOutput != null && outputSummary.length > 0;
 
     return (
         <div className="flex flex-col w-full">
@@ -462,6 +470,11 @@ function ToolBubble({
                         {inputPreview}
                     </span>
                 )}
+                {!inputPreview && outputSummary && (
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate max-w-[40%]">
+                        {outputSummary}
+                    </span>
+                )}
                 <svg
                     className={`w-2.5 h-2.5 text-gray-400 transition-transform duration-150 shrink-0 ${expanded ? "rotate-90" : ""}`}
                     fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
@@ -474,24 +487,13 @@ function ToolBubble({
                     {hasInput && (
                         <div className="px-2.5 py-2">
                             <div className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1">Input</div>
-                            <CodeViewer
-                                code={JSON.stringify(rawInput, null, 2)}
-                                language="json"
-                                maxHeight="200px"
-                                showLineNumbers={false}
-                                showCopyButton={false}
-                                showHeader={false}
-                                wordWrap={true}
-                            />
+                            <ToolInputTable input={rawInput} />
                         </div>
                     )}
                     {hasInput && hasOutput && <div className={`border-t ${styling.borderClass}`}/>}
                     {hasOutput && (
-                        <div className="px-2.5 py-2">
-                            <div className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1">Output</div>
-                            <div className="text-xs font-mono text-gray-600 dark:text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto">
-                                {outputText}
-                            </div>
+                        <div className="overflow-hidden rounded-b-md">
+                            <ToolOutputView output={structuredOutput} toolName={displayName} />
                         </div>
                     )}
                 </div>
