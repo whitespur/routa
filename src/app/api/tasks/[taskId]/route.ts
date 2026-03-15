@@ -7,7 +7,8 @@ import { GitWorktreeService } from "@/core/git/git-worktree-service";
 import { getDefaultWorkspaceWorktreeRoot, getEffectiveWorkspaceMetadata } from "@/core/models/workspace";
 import type { ArtifactType } from "@/core/models/artifact";
 import { emitColumnTransition } from "@/core/kanban/column-transition";
-import { enqueueKanbanTaskSession } from "@/core/kanban/workflow-orchestrator-singleton";
+import { archiveActiveTaskSession, prepareTaskForColumnChange } from "@/core/kanban/task-session-transition";
+import { enqueueKanbanTaskSession, getKanbanSessionQueue } from "@/core/kanban/workflow-orchestrator-singleton";
 
 export const dynamic = "force-dynamic";
 
@@ -198,12 +199,7 @@ export async function PATCH(
 
   if (body.retryTrigger) {
     // Preserve the current session in history before clearing for retry
-    if (nextTask.triggerSessionId) {
-      if (!nextTask.sessionIds) nextTask.sessionIds = [];
-      if (!nextTask.sessionIds.includes(nextTask.triggerSessionId)) {
-        nextTask.sessionIds.push(nextTask.triggerSessionId);
-      }
-    }
+    archiveActiveTaskSession(nextTask);
     nextTask.triggerSessionId = undefined;
     nextTask.lastSyncError = undefined;
   }
@@ -213,6 +209,14 @@ export async function PATCH(
   }
   if (body.status && !body.columnId) {
     nextTask.columnId = taskStatusToColumnId(body.status);
+  }
+
+  const columnChanged = prepareTaskForColumnChange(existing.columnId, nextTask);
+  if (columnChanged) {
+    getKanbanSessionQueue(system).removeCardJob(taskId);
+    if (existing.worktreeId) {
+      await system.worktreeStore.assignSession(existing.worktreeId, null);
+    }
   }
 
   if (body.syncToGitHub !== false && nextTask.githubRepo && nextTask.githubNumber) {
